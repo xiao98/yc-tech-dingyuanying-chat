@@ -129,16 +129,9 @@ export interface ISkillFile {
   /** Set on first read. `true` prevents repeated storage reads for non-text files. */
   isBinary?: boolean;
   /**
-   * Legacy code-environment identifier (`session_id/fileId?entity_id=...`).
-   * Persisted alongside `codeEnvRef` during the dual-write transition.
-   * Readers should prefer `codeEnvRef` and call `resolveCodeEnvRef` to
-   * fall back when only the legacy string is set. Cleared when the
-   * skill file is re-uploaded to storage.
-   */
-  codeEnvIdentifier?: string;
-  /**
-   * Structured replacement for `codeEnvIdentifier`. Set after uploading
-   * to the code env, used to check freshness on subsequent runs.
+   * Code-environment cache pointer. Set after uploading the file to
+   * codeapi, used to check freshness on subsequent primes. Cleared
+   * when the skill file is re-uploaded to storage.
    */
   codeEnvRef?: CodeEnvRef;
   createdAt?: Date;

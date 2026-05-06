@@ -128,10 +128,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
         conversationId,
         context: FileContext.execute_code,
         messageId: { $exists: true, $in: messageIds },
-        $or: [
-          { 'metadata.fileIdentifier': { $exists: true } },
-          { 'metadata.codeEnvRef': { $exists: true } },
-        ],
+        'metadata.codeEnvRef': { $exists: true },
       };
 
       const selectFields: SelectProjection = { text: 0 };
@@ -161,10 +158,7 @@ export function createFileMethods(mongoose: typeof import('mongoose')) {
       const filter: FilterQuery<IMongoFile> = {
         file_id: { $in: fileIds },
         context: { $ne: FileContext.execute_code },
-        $or: [
-          { 'metadata.fileIdentifier': { $exists: true } },
-          { 'metadata.codeEnvRef': { $exists: true } },
-        ],
+        'metadata.codeEnvRef': { $exists: true },
       };
 
       const selectFields: SelectProjection = { text: 0 };

@@ -27,9 +27,7 @@ const {
   EToolResources,
   EModelEndpoint,
   mergeFileConfig,
-  resolveCodeEnvRef,
   getEndpointFileConfig,
-  formatCodeEnvIdentifier,
 } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { createFile, getFiles, updateFile, claimCodeFile } = require('~/models');
@@ -287,7 +285,7 @@ const runPreviewFinalize = ({ finalize, fileId, previewRevision, onResolved }) =
 /**
  * Process code execution output files — downloads and saves both images
  * and non-image files. All files are saved to local storage with
- * `fileIdentifier` metadata for code env re-upload.
+ * `codeEnvRef` metadata for code env re-upload.
  *
  * Returns a two-part shape so callers can ship the attachment to the
  * client immediately and run preview extraction in the background:
@@ -367,8 +365,15 @@ const processCodeOutput = async ({
       };
     }
 
-    const codeEnvRef = { storage_session_id: session_id, file_id: id };
-    const fileIdentifier = formatCodeEnvIdentifier(codeEnvRef);
+    /* Code-output files belong to the user who ran the execution.
+     * SessionKey on codeapi will be `<tenant>:user:<userId>` for these,
+     * so cache and access stay user-private. */
+    const codeEnvRef = {
+      kind: 'user',
+      id: req.user.id,
+      storage_session_id: session_id,
+      file_id: id,
+    };
 
     /* `safeName` keeps the directory structure (`a/b/file.txt` -> `a/b/file.txt`)
      * so the next prime() can place the file at the same nested path in the
@@ -437,7 +442,7 @@ const processCodeOutput = async ({
         updatedAt: formattedDate,
         source: appConfig.fileStrategy,
         context: FileContext.execute_code,
-        metadata: { fileIdentifier, codeEnvRef },
+        metadata: { codeEnvRef },
       };
       await createFile(file, true);
       return { file: Object.assign(file, { messageId, toolCallId }) };
@@ -528,7 +533,7 @@ const processCodeOutput = async ({
       user: req.user.id,
       bytes: buffer.length,
       updatedAt: formattedDate,
-      metadata: { fileIdentifier, codeEnvRef },
+      metadata: { codeEnvRef },
       source: appConfig.fileStrategy,
       context: FileContext.execute_code,
       usage: isUpdate ? (claimed.usage ?? 0) + 1 : 1,
@@ -634,26 +639,24 @@ function checkIfActive(dateString) {
 /**
  * Retrieves the `lastModified` time string for a specified file from Code Execution Server.
  *
- * @param {string} fileIdentifier - The identifier for the file (e.g., "session_id/fileId").
+ * @param {import('librechat-data-provider').CodeEnvRef} ref - Typed pointer
+ *   into codeapi storage. Carries kind/id/storage_session_id/file_id;
+ *   codeapi resolves the sessionKey from the request's auth context.
  *
  * @returns {Promise<string|null>}
  *          A promise that resolves to the `lastModified` time string of the file if successful, or null if there is an
  *          error in initialization or fetching the info.
  */
-async function getSessionInfo(fileIdentifier) {
+async function getSessionInfo(ref) {
   try {
     const baseURL = getCodeBaseURL();
-    const [path, queryString] = fileIdentifier.split('?');
-    const [session_id, fileId] = path.split('/');
-    let queryParams = {};
-    if (queryString) {
-      queryParams = Object.fromEntries(new URLSearchParams(queryString).entries());
-    }
+    const params = {};
+    if (ref.entity_id) params.entity_id = ref.entity_id;
 
     const response = await axios({
       method: 'get',
-      url: `${baseURL}/sessions/${session_id}/objects/${fileId}`,
-      params: queryParams,
+      url: `${baseURL}/sessions/${ref.storage_session_id}/objects/${ref.file_id}`,
+      params,
       headers: {
         'User-Agent': 'LibreChat/1.0',
       },
@@ -717,7 +720,7 @@ const primeFiles = async (options) => {
       continue;
     }
 
-    const ref = resolveCodeEnvRef(file.metadata ?? {});
+    const ref = file.metadata?.codeEnvRef;
     if (ref) {
       const session_id = ref.storage_session_id;
       const id = ref.file_id;
@@ -790,7 +793,7 @@ const primeFiles = async (options) => {
             FileSources.execute_code,
           );
           const stream = await getDownloadStream(options.req, file.filepath);
-          const fileIdentifier = await uploadCodeEnvFile({
+          const uploaded = await uploadCodeEnvFile({
             req: options.req,
             stream,
             filename: file.filename,
@@ -798,25 +801,29 @@ const primeFiles = async (options) => {
           });
 
           /**
-           * Parse the FRESH fileIdentifier returned by the reupload and
-           * route it through both the dedupe Map, the persisted record
-           * (dual-write), and the in-memory `files` list. The original
-           * `(session_id, id)` parsed at the top of this iteration refer
-           * to the old, expired/missing sandbox object — using them here
-           * would silently re-introduce the bug `Graph.sessions` seeding
-           * is supposed to fix.
+           * Use the FRESH `(storage_session_id, file_id)` from the
+           * reupload response and route it through the dedupe Map, the
+           * persisted record, and the in-memory `files` list. The
+           * original ref captured at the top of this iteration refers
+           * to the old, expired/missing sandbox object — using it here
+           * would silently re-introduce the bug `Graph.sessions`
+           * seeding is supposed to fix.
            *
-           * `entity_id` survives the round-trip: the upload was tagged
-           * with `entityId` above, so the new ref carries the same scope.
+           * `kind`, `id`, `entity_id` survive the round-trip: the
+           * upload preserves the resource identity, only the storage
+           * pointer changes.
            */
-          const newRef = resolveCodeEnvRef({ fileIdentifier });
-          if (!newRef) {
-            throw new Error(`Reupload returned unparseable fileIdentifier: ${fileIdentifier}`);
-          }
+          const newRef = {
+            kind: ref.kind,
+            id: ref.id,
+            storage_session_id: uploaded.storage_session_id,
+            file_id: uploaded.file_id,
+            ...(entityId ? { entity_id: entityId } : {}),
+            ...(ref.version != null ? { version: ref.version } : {}),
+          };
 
           const updatedMetadata = {
             ...file.metadata,
-            fileIdentifier,
             codeEnvRef: newRef,
           };
 
@@ -833,7 +840,7 @@ const primeFiles = async (options) => {
           );
         }
       };
-      const uploadTime = await getSessionInfo(formatCodeEnvIdentifier(ref));
+      const uploadTime = await getSessionInfo(ref);
       if (!uploadTime) {
         logger.warn(`Failed to get upload time for file ${id} in session ${session_id}`);
         await reuploadFile();

@@ -590,15 +590,16 @@ describe('Code Process', () => {
     });
 
     describe('metadata and file properties', () => {
-      it('should include fileIdentifier and codeEnvRef in metadata', async () => {
+      it('should include codeEnvRef in metadata with kind: user', async () => {
         const smallBuffer = Buffer.alloc(100);
         mockAxios.mockResolvedValue({ data: smallBuffer });
 
         const { file: result } = await processCodeOutput(baseParams);
 
         expect(result.metadata).toEqual({
-          fileIdentifier: 'session-123/file-id-123',
           codeEnvRef: {
+            kind: 'user',
+            id: 'user-123',
             storage_session_id: 'session-123',
             file_id: 'file-id-123',
           },
@@ -1397,8 +1398,8 @@ describe('Code Process', () => {
      * `getStrategyFunctions(FileSources.execute_code)` for the code-env
      * upload — both go through the same factory in production.
      */
-    function setupReuploadMocks(newFileIdentifier) {
-      const handleFileUpload = jest.fn().mockResolvedValue(newFileIdentifier);
+    function setupReuploadMocks(newRef) {
+      const handleFileUpload = jest.fn().mockResolvedValue(newRef);
       const getDownloadStream = jest.fn().mockResolvedValue('mock-stream');
       getStrategyFunctions.mockImplementation((source) => {
         if (source === 'execute_code') return { handleFileUpload };
@@ -1412,7 +1413,7 @@ describe('Code Process', () => {
       return { handleFileUpload, getDownloadStream };
     }
 
-    it('seed receives FRESH session_id + id parsed off the new fileIdentifier on reupload', async () => {
+    it('seed receives FRESH (storage_session_id, file_id) from the reupload response', async () => {
       const dbFile = {
         file_id: 'librechat-file-id',
         filename: 'sentinel.txt',
@@ -1421,12 +1422,17 @@ describe('Code Process', () => {
         context: 'execute_code',
         metadata: {
           /* Stale sandbox ref — this is what `getSessionInfo` will 404 on. */
-          fileIdentifier: 'OLD_SESSION/OLD_ID',
+          codeEnvRef: {
+            kind: 'user',
+            id: 'user-123',
+            storage_session_id: 'OLD_SESSION',
+            file_id: 'OLD_ID',
+          },
         },
       };
       getFiles.mockResolvedValue([dbFile]);
 
-      setupReuploadMocks('NEW_SESSION/NEW_ID');
+      setupReuploadMocks({ storage_session_id: 'NEW_SESSION', file_id: 'NEW_ID' });
 
       const result = await primeFiles({
         req: { user: { id: 'user-123', role: 'USER' } },
@@ -1443,18 +1449,25 @@ describe('Code Process', () => {
       ]);
     });
 
-    it('persists fileIdentifier + codeEnvRef on the DB record after reupload', async () => {
+    it('persists fresh codeEnvRef (kind/id preserved) on the DB record after reupload', async () => {
       const dbFile = {
         file_id: 'librechat-file-id',
         filename: 'sentinel.txt',
         filepath: '/uploads/sentinel.txt',
         source: 'local',
         context: 'execute_code',
-        metadata: { fileIdentifier: 'OLD_SESSION/OLD_ID' },
+        metadata: {
+          codeEnvRef: {
+            kind: 'user',
+            id: 'user-123',
+            storage_session_id: 'OLD_SESSION',
+            file_id: 'OLD_ID',
+          },
+        },
       };
       getFiles.mockResolvedValue([dbFile]);
 
-      setupReuploadMocks('NEW_SESSION/NEW_ID');
+      setupReuploadMocks({ storage_session_id: 'NEW_SESSION', file_id: 'NEW_ID' });
 
       await primeFiles({
         req: { user: { id: 'user-123', role: 'USER' } },
@@ -1468,17 +1481,18 @@ describe('Code Process', () => {
         expect.objectContaining({
           file_id: 'librechat-file-id',
           metadata: expect.objectContaining({
-            fileIdentifier: 'NEW_SESSION/NEW_ID',
-            codeEnvRef: { storage_session_id: 'NEW_SESSION', file_id: 'NEW_ID' },
+            codeEnvRef: {
+              kind: 'user',
+              id: 'user-123',
+              storage_session_id: 'NEW_SESSION',
+              file_id: 'NEW_ID',
+            },
           }),
         }),
       );
     });
 
-    it('reads codeEnvRef directly when present on metadata (skipping reupload)', async () => {
-      /* Records written after the structured-ref migration carry both the
-       * legacy string and the typed `codeEnvRef`. The read path must
-       * honor `codeEnvRef` so cache-hit primes don't pay another upload. */
+    it('reads codeEnvRef directly when present (skipping reupload)', async () => {
       const dbFile = {
         file_id: 'librechat-file-id',
         filename: 'sentinel.txt',
@@ -1486,8 +1500,9 @@ describe('Code Process', () => {
         source: 'local',
         context: 'execute_code',
         metadata: {
-          fileIdentifier: 'STRUCT_SESSION/STRUCT_ID?entity_id=user-123',
           codeEnvRef: {
+            kind: 'user',
+            id: 'user-123',
             storage_session_id: 'STRUCT_SESSION',
             file_id: 'STRUCT_ID',
             entity_id: 'user-123',
@@ -1517,42 +1532,6 @@ describe('Code Process', () => {
         },
       ]);
     });
-
-    it('falls back to parsing legacy fileIdentifier when codeEnvRef is missing', async () => {
-      /* Pre-migration records carry only the legacy magic string. The
-       * read path parses it transparently so cache hits keep working
-       * before the migration has run. */
-      const dbFile = {
-        file_id: 'librechat-file-id',
-        filename: 'sentinel.txt',
-        filepath: '/uploads/sentinel.txt',
-        source: 'local',
-        context: 'execute_code',
-        metadata: {
-          fileIdentifier: 'LEGACY_SESSION/LEGACY_ID?entity_id=user-123',
-        },
-      };
-      getFiles.mockResolvedValue([dbFile]);
-      filterFilesByAgentAccess.mockImplementation(({ files }) => Promise.resolve(files));
-      mockAxios.mockResolvedValue({ data: { lastModified: new Date().toISOString() } });
-
-      const result = await primeFiles({
-        req: { user: { id: 'user-123', role: 'USER' } },
-        tool_resources: {
-          execute_code: { file_ids: ['librechat-file-id'], files: [] },
-        },
-        agentId: 'agent-id',
-      });
-
-      expect(result.files).toEqual([
-        {
-          id: 'LEGACY_ID',
-          session_id: 'LEGACY_SESSION',
-          name: 'sentinel.txt',
-          entity_id: 'user-123',
-        },
-      ]);
-    });
   });
 
   describe('primeFiles toolContext surfaces preview status to the LLM', () => {
@@ -1574,7 +1553,14 @@ describe('Code Process', () => {
         filepath: `/uploads/${overrides.status ?? 'ready'}.xlsx`,
         source: 'local',
         context: 'execute_code',
-        metadata: { fileIdentifier: 'CURRENT_SESSION/CURRENT_ID' },
+        metadata: {
+          codeEnvRef: {
+            kind: 'user',
+            id: 'user-123',
+            storage_session_id: 'CURRENT_SESSION',
+            file_id: 'CURRENT_ID',
+          },
+        },
         ...overrides,
       };
     }

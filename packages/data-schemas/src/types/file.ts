@@ -62,13 +62,10 @@ export interface IMongoFile extends Omit<Document, 'model'> {
   height?: number;
   metadata?: {
     /**
-     * Legacy magic-string identifier (`session_id/fileId?entity_id=...`).
-     * Persisted alongside `codeEnvRef` during the dual-write transition.
-     */
-    fileIdentifier?: string;
-    /**
-     * Structured replacement for `fileIdentifier`. Readers should
-     * resolve via `resolveCodeEnvRef`.
+     * Code-environment cache pointer for files re-uploadable to
+     * codeapi (chat attachments, agent tool resources, code-output
+     * files). Carries the resource kind + identity so codeapi can
+     * derive the sessionKey explicitly.
      */
     codeEnvRef?: CodeEnvRef;
   };

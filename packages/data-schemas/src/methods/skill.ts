@@ -1433,7 +1433,7 @@ export function createSkillMethods(mongoose: typeof import('mongoose'), deps: Sk
           author: row.author,
           tenantId: row.tenantId,
         },
-        $unset: { content: '', isBinary: '', codeEnvIdentifier: '', codeEnvRef: '' },
+        $unset: { content: '', isBinary: '', codeEnvRef: '' },
       },
       { new: false, upsert: true },
     ).lean();
@@ -1490,34 +1490,15 @@ export function createSkillMethods(mongoose: typeof import('mongoose'), deps: Sk
     updates: Array<{
       skillId: Types.ObjectId | string;
       relativePath: string;
-      codeEnvIdentifier: string;
-      codeEnvRef?: CodeEnvRef;
+      codeEnvRef: CodeEnvRef;
     }>,
   ): Promise<{ matchedCount: number; modifiedCount: number }> {
     if (updates.length === 0) return { matchedCount: 0, modifiedCount: 0 };
     const SkillFile = mongoose.models.SkillFile as Model<ISkillFileDocument>;
-    /* Legacy-only updates ($set codeEnvIdentifier without codeEnvRef)
-     * MUST also $unset any pre-existing codeEnvRef. resolveCodeEnvRef
-     * prefers the structured field, so leaving a stale codeEnvRef in
-     * place after refreshing the legacy identifier would shadow the
-     * fresh pointer with the old (storage_session_id, file_id). Mixed-
-     * writer rollouts (e.g. an older codepath calling this method
-     * before its sibling write site is updated) would silently serve
-     * stale skill-file refs. */
     const ops = updates.map((u) => ({
       updateOne: {
         filter: { skillId: u.skillId, relativePath: u.relativePath },
-        update: u.codeEnvRef
-          ? {
-              $set: {
-                codeEnvIdentifier: u.codeEnvIdentifier,
-                codeEnvRef: u.codeEnvRef,
-              },
-            }
-          : {
-              $set: { codeEnvIdentifier: u.codeEnvIdentifier },
-              $unset: { codeEnvRef: '' },
-            },
+        update: { $set: { codeEnvRef: u.codeEnvRef } },
       },
     }));
 
@@ -1531,7 +1512,7 @@ export function createSkillMethods(mongoose: typeof import('mongoose'), deps: Sk
     const result = await tenantSafeBulkWrite(SkillFile, ops);
     if (result.modifiedCount < updates.length) {
       logger.warn(
-        `[updateSkillFileCodeEnvIds] Persisted ${result.modifiedCount}/${updates.length} codeEnvIdentifiers (matched ${result.matchedCount}). Subsequent primes for unmatched files will re-upload.`,
+        `[updateSkillFileCodeEnvIds] Persisted ${result.modifiedCount}/${updates.length} codeEnvRefs (matched ${result.matchedCount}). Subsequent primes for unmatched files will re-upload.`,
       );
     }
     return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };

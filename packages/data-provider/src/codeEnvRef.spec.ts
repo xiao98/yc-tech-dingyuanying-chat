@@ -1,99 +1,47 @@
-import { parseCodeEnvIdentifier, formatCodeEnvIdentifier, resolveCodeEnvRef } from './codeEnvRef';
+/* `CodeEnvRef` is a plain typed struct (no helpers, no resolvers).
+ * Behavioral coverage lives at consumer sites — `processCodeOutput`
+ * (write), `primeFiles` (read+reupload), `primeSkillFiles` (read+write),
+ * agents `ToolNode` (forward to codeapi). This file just pins the
+ * shape so a future refactor can't silently widen or narrow the
+ * fields without surfacing here. */
+import type { CodeEnvKind, CodeEnvRef } from './codeEnvRef';
 
-describe('parseCodeEnvIdentifier', () => {
-  it('parses session/file with entity_id query', () => {
-    expect(parseCodeEnvIdentifier('s1/f1?entity_id=skill-42')).toEqual({
-      storage_session_id: 's1',
-      file_id: 'f1',
-      entity_id: 'skill-42',
-    });
+describe('CodeEnvRef', () => {
+  it('accepts the canonical shape for kind: skill', () => {
+    const ref: CodeEnvRef = {
+      kind: 'skill',
+      id: 'skill_123',
+      storage_session_id: 'sess_abc',
+      file_id: 'file_xyz',
+      version: 7,
+    };
+    expect(ref.kind).toBe('skill');
+    expect(ref.version).toBe(7);
   });
 
-  it('parses session/file without query string', () => {
-    expect(parseCodeEnvIdentifier('s1/f1')).toEqual({
-      storage_session_id: 's1',
-      file_id: 'f1',
-    });
+  it('accepts the canonical shape for kind: user', () => {
+    const ref: CodeEnvRef = {
+      kind: 'user',
+      id: 'user_456',
+      storage_session_id: 'sess_def',
+      file_id: 'file_uvw',
+    };
+    expect(ref.kind).toBe('user');
+    expect(ref.version).toBeUndefined();
   });
 
-  it('treats empty entity_id as absent', () => {
-    expect(parseCodeEnvIdentifier('s1/f1?entity_id=')).toEqual({
-      storage_session_id: 's1',
-      file_id: 'f1',
-    });
+  it('accepts the canonical shape for kind: agent', () => {
+    const ref: CodeEnvRef = {
+      kind: 'agent',
+      id: 'agent_789',
+      storage_session_id: 'sess_ghi',
+      file_id: 'file_rst',
+    };
+    expect(ref.kind).toBe('agent');
   });
 
-  it('returns undefined for empty / null / missing slash', () => {
-    expect(parseCodeEnvIdentifier('')).toBeUndefined();
-    expect(parseCodeEnvIdentifier(null)).toBeUndefined();
-    expect(parseCodeEnvIdentifier(undefined)).toBeUndefined();
-    expect(parseCodeEnvIdentifier('no-slash-here')).toBeUndefined();
-  });
-
-  it('rejects extra path segments instead of silently truncating', () => {
-    /* Without the length guard `s/f/extra` would parse to `{s, f}` and a
-     * future change to the on-disk identifier format would surface as
-     * wrong refs rather than a parse failure. */
-    expect(parseCodeEnvIdentifier('s/f/extra')).toBeUndefined();
-    expect(parseCodeEnvIdentifier('s/f/extra?entity_id=skill-42')).toBeUndefined();
-  });
-});
-
-describe('formatCodeEnvIdentifier', () => {
-  it('round-trips through parse', () => {
-    const ref = { storage_session_id: 's1', file_id: 'f1', entity_id: 'skill-42' };
-    expect(parseCodeEnvIdentifier(formatCodeEnvIdentifier(ref))).toEqual(ref);
-  });
-
-  it('omits entity_id query when absent', () => {
-    expect(formatCodeEnvIdentifier({ storage_session_id: 's1', file_id: 'f1' })).toBe('s1/f1');
-  });
-});
-
-describe('resolveCodeEnvRef', () => {
-  it('prefers structured codeEnvRef over legacy string', () => {
-    const ref = { storage_session_id: 'new', file_id: 'new', entity_id: 'e' };
-    expect(
-      resolveCodeEnvRef({
-        codeEnvRef: ref,
-        codeEnvIdentifier: 'old/old?entity_id=stale',
-      }),
-    ).toEqual(ref);
-  });
-
-  it('falls back to codeEnvIdentifier when codeEnvRef is missing', () => {
-    expect(resolveCodeEnvRef({ codeEnvIdentifier: 'sid/fid?entity_id=x' })).toEqual({
-      storage_session_id: 'sid',
-      file_id: 'fid',
-      entity_id: 'x',
-    });
-  });
-
-  it('falls back to fileIdentifier (File.metadata field name)', () => {
-    expect(resolveCodeEnvRef({ fileIdentifier: 'sid/fid' })).toEqual({
-      storage_session_id: 'sid',
-      file_id: 'fid',
-    });
-  });
-
-  it('returns undefined when nothing usable is set', () => {
-    expect(resolveCodeEnvRef({})).toBeUndefined();
-    expect(resolveCodeEnvRef({ codeEnvIdentifier: '' })).toBeUndefined();
-    expect(
-      resolveCodeEnvRef({
-        codeEnvRef: { storage_session_id: '', file_id: 'f' } as never,
-      }),
-    ).toBeUndefined();
-  });
-
-  it('strips extra fields off the structured ref to keep the return clean', () => {
-    const out = resolveCodeEnvRef({
-      codeEnvRef: {
-        storage_session_id: 's1',
-        file_id: 'f1',
-      } as never,
-    });
-    expect(out).toEqual({ storage_session_id: 's1', file_id: 'f1' });
-    expect(out).not.toHaveProperty('entity_id');
+  it('CodeEnvKind union enumerates all four kinds', () => {
+    const kinds: CodeEnvKind[] = ['skill', 'agent', 'user', 'system'];
+    expect(kinds).toHaveLength(4);
   });
 });

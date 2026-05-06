@@ -54,7 +54,8 @@ async function getCodeOutputDownloadStream(fileIdentifier) {
  * @param {import('fs').ReadStream | import('stream').Readable} params.stream - The read stream for the file.
  * @param {string} params.filename - The name of the file.
  * @param {string} [params.entity_id] - Optional entity ID for the file.
- * @returns {Promise<string>}
+ * @returns {Promise<{ storage_session_id: string; file_id: string }>}
+ *   The codeapi storage location of the uploaded file.
  * @throws {Error} If there's an error during the upload process.
  */
 async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
@@ -83,18 +84,16 @@ async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
 
     const response = await axios.post(`${baseURL}/upload`, form, options);
 
-    /** @type {{ message: string; session_id: string; files: Array<{ fileId: string; filename: string }> }} */
+    /** @type {{ message: string; storage_session_id: string; files: Array<{ fileId: string; filename: string }> }} */
     const result = response.data;
     if (result.message !== 'success') {
       throw new Error(`Error uploading file: ${result.message}`);
     }
 
-    const fileIdentifier = `${result.session_id}/${result.files[0].fileId}`;
-    if (entity_id.length === 0) {
-      return fileIdentifier;
-    }
-
-    return `${fileIdentifier}?entity_id=${entity_id}`;
+    return {
+      storage_session_id: result.storage_session_id,
+      file_id: result.files[0].fileId,
+    };
   } catch (error) {
     throw new Error(
       logAxiosError({
@@ -119,7 +118,7 @@ async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
  *   through subsequent download/walk passes — sandboxed-code modifications
  *   are dropped on the floor and the original ref is echoed back as
  *   `inherited: true`, never as a generated artifact.
- * @returns {Promise<{ session_id: string; files: Array<{ fileId: string; filename: string }> }>}
+ * @returns {Promise<{ storage_session_id: string; files: Array<{ fileId: string; filename: string }> }>}
  * @throws {Error} If the batch upload fails entirely.
  */
 async function batchUploadCodeEnvFiles({ req, files, entity_id = '', read_only = false }) {
@@ -153,12 +152,12 @@ async function batchUploadCodeEnvFiles({ req, files, entity_id = '', read_only =
 
     const response = await axios.post(`${baseURL}/upload/batch`, form, options);
 
-    /** @type {{ message: string; session_id: string; files: Array<{ status: string; fileId?: string; filename: string; error?: string }>; succeeded: number; failed: number }} */
+    /** @type {{ message: string; storage_session_id: string; files: Array<{ status: string; fileId?: string; filename: string; error?: string }>; succeeded: number; failed: number }} */
     const result = response.data;
     if (
       !result ||
       typeof result !== 'object' ||
-      !result.session_id ||
+      !result.storage_session_id ||
       !Array.isArray(result.files)
     ) {
       throw new Error(`Unexpected batch upload response: ${JSON.stringify(result).slice(0, 200)}`);
@@ -179,7 +178,7 @@ async function batchUploadCodeEnvFiles({ req, files, entity_id = '', read_only =
       .filter((f) => f.status === 'success' && f.fileId)
       .map((f) => ({ fileId: f.fileId, filename: f.filename }));
 
-    return { session_id: result.session_id, files: successFiles };
+    return { storage_session_id: result.storage_session_id, files: successFiles };
   } catch (error) {
     throw new Error(
       logAxiosError({

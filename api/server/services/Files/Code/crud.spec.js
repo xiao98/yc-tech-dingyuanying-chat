@@ -76,7 +76,7 @@ describe('Code CRUD', () => {
       mockAxios.post.mockResolvedValue({
         data: {
           message: 'success',
-          session_id: 'sess-1',
+          storage_session_id: 'sess-1',
           files: [{ fileId: 'fid-1', filename: 'data.csv' }],
         },
       });
@@ -96,7 +96,7 @@ describe('Code CRUD', () => {
       mockAxios.post.mockResolvedValue({
         data: {
           message: 'success',
-          session_id: 'sess-1',
+          storage_session_id: 'sess-1',
           files: [{ fileId: 'fid-1', filename: 'data.csv' }],
         },
       });
@@ -107,35 +107,39 @@ describe('Code CRUD', () => {
       expect(callConfig.timeout).toBe(120000);
     });
 
-    it('should return fileIdentifier on success', async () => {
+    it('should return { storage_session_id, file_id } on success', async () => {
       mockAxios.post.mockResolvedValue({
         data: {
           message: 'success',
-          session_id: 'sess-1',
+          storage_session_id: 'sess-1',
           files: [{ fileId: 'fid-1', filename: 'data.csv' }],
         },
       });
 
       const result = await uploadCodeEnvFile(baseUploadParams);
-      expect(result).toBe('sess-1/fid-1');
+      expect(result).toEqual({ storage_session_id: 'sess-1', file_id: 'fid-1' });
     });
 
-    it('should append entity_id query param when provided', async () => {
+    it('should pass entity_id when provided (form field, not URL query)', async () => {
       mockAxios.post.mockResolvedValue({
         data: {
           message: 'success',
-          session_id: 'sess-1',
+          storage_session_id: 'sess-1',
           files: [{ fileId: 'fid-1', filename: 'data.csv' }],
         },
       });
 
       const result = await uploadCodeEnvFile({ ...baseUploadParams, entity_id: 'agent-42' });
-      expect(result).toBe('sess-1/fid-1?entity_id=agent-42');
+      /* entity_id flows through the multipart form to codeapi; the
+       * response shape doesn't change. Codeapi resolves the sessionKey
+       * from auth context, so entity_id no longer needs to ride along
+       * in the returned identifier. */
+      expect(result).toEqual({ storage_session_id: 'sess-1', file_id: 'fid-1' });
     });
 
     it('should throw when server returns non-success message', async () => {
       mockAxios.post.mockResolvedValue({
-        data: { message: 'quota_exceeded', session_id: 's', files: [] },
+        data: { message: 'quota_exceeded', storage_session_id: 's', files: [] },
       });
 
       await expect(uploadCodeEnvFile(baseUploadParams)).rejects.toThrow('quota_exceeded');

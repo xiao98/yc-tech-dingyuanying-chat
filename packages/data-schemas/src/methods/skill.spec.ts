@@ -1318,14 +1318,11 @@ describe('SkillFile methods', () => {
     expect(files[0].file_id).toBe('file-2');
   });
 
-  it('clears codeEnvIdentifier and codeEnvRef when a skill file is upserted (replacement)', async () => {
+  it('clears codeEnvRef when a skill file is upserted (replacement)', async () => {
     /* A re-upload of a skill file replaces the row's contents — but the
-     * cached cache pointers (`codeEnvIdentifier`, `codeEnvRef`) refer to
-     * the OLD bytes living in codeapi. Leaving either field populated
-     * makes the next prime resolve a stale ref; with `resolveCodeEnvRef`
-     * preferring the structured field, even clearing only the legacy
-     * string would leave the typed ref live and serve a stale pointer.
-     * The upsert MUST $unset both fields. */
+     * cached `codeEnvRef` refers to the OLD bytes living in codeapi.
+     * Leaving it populated would make the next prime resolve a stale
+     * pointer. The upsert MUST $unset codeEnvRef. */
     const { skill } = await methods.createSkill(makeSkillInput());
     await methods.upsertSkillFile({
       skillId: skill._id,
@@ -1344,21 +1341,24 @@ describe('SkillFile methods', () => {
       {
         skillId: skill._id,
         relativePath: 'scripts/parse.sh',
-        codeEnvIdentifier: `sess-old/file-old?entity_id=${entityId}`,
         codeEnvRef: {
+          kind: 'skill',
+          id: entityId,
           storage_session_id: 'sess-old',
           file_id: 'file-old',
           entity_id: entityId,
+          version: 1,
         },
       },
     ]);
 
-    /* Sanity: both pointers are persisted before the replacement. */
+    /* Sanity: ref is persisted before the replacement. */
     const before = await methods.listSkillFiles(skill._id);
-    expect(before[0].codeEnvIdentifier).toBe(`sess-old/file-old?entity_id=${entityId}`);
     expect(before[0].codeEnvRef).toMatchObject({
+      kind: 'skill',
       storage_session_id: 'sess-old',
       file_id: 'file-old',
+      version: 1,
     });
 
     /* Replace the row with new bytes. */
@@ -1377,7 +1377,6 @@ describe('SkillFile methods', () => {
     const after = await methods.listSkillFiles(skill._id);
     expect(after).toHaveLength(1);
     expect(after[0].file_id).toBe('file-2');
-    expect(after[0].codeEnvIdentifier).toBeUndefined();
     expect(after[0].codeEnvRef).toBeUndefined();
   });
 
@@ -1437,7 +1436,7 @@ describe('SkillFile methods', () => {
      * egress per chat load). Pinning the contract here so the caller
      * can warn-log on partial writes instead of failing closed.
      */
-    it('persists codeEnvIdentifier + codeEnvRef and reports matched/modified counts', async () => {
+    it('persists codeEnvRef and reports matched/modified counts', async () => {
       const { skill } = await methods.createSkill(makeSkillInput());
       await methods.upsertSkillFile({
         skillId: skill._id,
@@ -1456,11 +1455,13 @@ describe('SkillFile methods', () => {
         {
           skillId: skill._id,
           relativePath: 'scripts/a.sh',
-          codeEnvIdentifier: `session-1/file-1?entity_id=${entityId}`,
           codeEnvRef: {
+            kind: 'skill',
+            id: entityId,
             storage_session_id: 'session-1',
             file_id: 'file-1',
             entity_id: entityId,
+            version: 1,
           },
         },
       ]);
@@ -1469,96 +1470,14 @@ describe('SkillFile methods', () => {
       expect(result.modifiedCount).toBe(1);
 
       const files = await methods.listSkillFiles(skill._id);
-      expect(files[0].codeEnvIdentifier).toBe(`session-1/file-1?entity_id=${entityId}`);
       expect(files[0].codeEnvRef).toMatchObject({
+        kind: 'skill',
+        id: entityId,
         storage_session_id: 'session-1',
         file_id: 'file-1',
         entity_id: entityId,
+        version: 1,
       });
-    });
-
-    it('persists only legacy codeEnvIdentifier when codeEnvRef is omitted', async () => {
-      const { skill } = await methods.createSkill(makeSkillInput());
-      await methods.upsertSkillFile({
-        skillId: skill._id,
-        relativePath: 'scripts/legacy.sh',
-        file_id: 'f-legacy',
-        filename: 'legacy.sh',
-        filepath: '/legacy',
-        source: 'local',
-        mimeType: 'text/plain',
-        bytes: 1,
-        author: owner._id,
-      });
-
-      const result = await methods.updateSkillFileCodeEnvIds([
-        {
-          skillId: skill._id,
-          relativePath: 'scripts/legacy.sh',
-          codeEnvIdentifier: 'sid-legacy/fid-legacy',
-        },
-      ]);
-
-      expect(result.matchedCount).toBe(1);
-      const files = await methods.listSkillFiles(skill._id);
-      const legacy = files.find((f) => f.relativePath === 'scripts/legacy.sh');
-      expect(legacy?.codeEnvIdentifier).toBe('sid-legacy/fid-legacy');
-      expect(legacy?.codeEnvRef).toBeUndefined();
-    });
-
-    it('clears stale codeEnvRef when a legacy-only update refreshes codeEnvIdentifier', async () => {
-      /* Mixed-writer rollout regression: an older call site may still
-       * send only `codeEnvIdentifier` after the dual-write rollout has
-       * already populated `codeEnvRef` on the row. Without an explicit
-       * $unset, the structured field would shadow the freshly-refreshed
-       * legacy identifier in `resolveCodeEnvRef` (which prefers
-       * `codeEnvRef`), serving a stale (storage_session_id, file_id)
-       * pointer until the next dual-writer touched the row. */
-      const { skill } = await methods.createSkill(makeSkillInput());
-      await methods.upsertSkillFile({
-        skillId: skill._id,
-        relativePath: 'scripts/mixed.sh',
-        file_id: 'mixed-1',
-        filename: 'mixed.sh',
-        filepath: '/mixed',
-        source: 'local',
-        mimeType: 'text/plain',
-        bytes: 1,
-        author: owner._id,
-      });
-
-      /* First write: dual-writer populates BOTH fields on the row. */
-      await methods.updateSkillFileCodeEnvIds([
-        {
-          skillId: skill._id,
-          relativePath: 'scripts/mixed.sh',
-          codeEnvIdentifier: 'sess-old/file-old',
-          codeEnvRef: {
-            storage_session_id: 'sess-old',
-            file_id: 'file-old',
-          },
-        },
-      ]);
-      const before = await methods.listSkillFiles(skill._id);
-      expect(before[0].codeEnvRef).toMatchObject({
-        storage_session_id: 'sess-old',
-        file_id: 'file-old',
-      });
-
-      /* Second write: legacy-only writer refreshes the identifier. */
-      await methods.updateSkillFileCodeEnvIds([
-        {
-          skillId: skill._id,
-          relativePath: 'scripts/mixed.sh',
-          codeEnvIdentifier: 'sess-new/file-new',
-        },
-      ]);
-
-      const after = await methods.listSkillFiles(skill._id);
-      expect(after[0].codeEnvIdentifier).toBe('sess-new/file-new');
-      /* Critical: codeEnvRef must NOT survive — otherwise the next
-       * resolveCodeEnvRef would return the stale `sess-old/file-old`. */
-      expect(after[0].codeEnvRef).toBeUndefined();
     });
 
     it('reports modifiedCount=0 when no SkillFile rows match the (skillId, relativePath) filter', async () => {
@@ -1567,7 +1486,12 @@ describe('SkillFile methods', () => {
         {
           skillId: skill._id,
           relativePath: 'does/not/exist.sh',
-          codeEnvIdentifier: 'sid/fid?entity_id=x',
+          codeEnvRef: {
+            kind: 'skill',
+            id: 'x',
+            storage_session_id: 'sid',
+            file_id: 'fid',
+          },
         },
       ]);
       expect(result.modifiedCount).toBe(0);
