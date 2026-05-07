@@ -108,8 +108,19 @@ const startServer = async () => {
 
   /* Middleware */
   app.use(noIndex);
-  app.use(express.json({ limit: '3mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '3mb' }));
+  /* PAYMENT_RAW_BODY_HOOK (P3b) — stash raw bytes on req for signature
+   * verification. Stripe and WeChat Pay v3 webhooks both compute
+   * HMAC/RSA over the request body bytes, which are no longer available
+   * after `express.json` parses the JSON. The verify callback captures
+   * them with no behavioral change for existing routes (they use
+   * req.body, untouched). */
+  const captureRawBody = (req, _res, buf) => {
+    if (buf && buf.length) {
+      req.rawBody = buf;
+    }
+  };
+  app.use(express.json({ limit: '3mb', verify: captureRawBody }));
+  app.use(express.urlencoded({ extended: true, limit: '3mb', verify: captureRawBody }));
   app.use(handleJsonParseError);
 
   /**

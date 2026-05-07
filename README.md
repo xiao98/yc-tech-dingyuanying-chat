@@ -1,6 +1,38 @@
 # yc-tech-dingyuanying-chat
 
-> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. P2b = system-lock sidecar reverse proxy. **P3a = deploy infra + payment route scaffolding (no real webhook handlers yet — those land in P3b)**.
+> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. P2b = system-lock sidecar reverse proxy. P3a = deploy infra + payment route scaffolding. **P3b = three-channel webhook handlers (stripe / alipay / wxpay) + balance gate + replay protection.**
+
+## P3b Verification
+
+Branch: `p3b/payments` (built on P3a `ae8ebee2e`). Full evidence in [`P3b.md`](./P3b.md).
+
+| Item | Value |
+|---|---|
+| Webhook handlers | `api/server/routes/payment/{stripe,alipay,wxpay}.js` — implementations replace P3a stubs |
+| Signature primitives | `api/server/routes/payment/signatures.js` — pure Node `crypto` (HMAC-SHA256 / RSA-SHA256 / AEAD-AES-256-GCM), 0 SDK deps |
+| Atomic credit helper | `packages/api/src/payments/credit.ts` — mongoose session/transaction with E11000 → idempotent fallback |
+| Balance gate (criterion 4.3) | `api/server/middleware/balanceGate.js` mounted at `/api/agents/chat` before `attachSubkey`; returns `402 {"error":"insufficient balance",balance:0}` when `Balance.tokenCredits ≤ 0` |
+| Mock simulators | `e2e/mocks/{stripe,alipay,wxpay}-simulator.js` — generate signed payloads with the same primitives the server verifies (no SDK on either side) |
+| Criterion 4.2 e2e | **7 / 7 PASS** (3 paid + 3 replay-idempotent + 1 bad-signature reject) — `api/server/routes/payment/__tests__/payments.e2e.spec.js` |
+| Criterion 4.3 e2e | **3 / 3 PASS** (zero-balance 402 + missing-row 402 + after-topup 200) — `api/server/routes/__tests__/balance-gate.e2e.spec.js` |
+| Regression (P1+P1.5+P2a) | **32 / 32 PASS** unchanged |
+| Regression (sidecar) | **8 / 8 PASS** unchanged |
+| Endpoint path note | spec referenced `/api/ask/ycapi-claude`, actual LibreChat path is `/api/agents/chat`. Gate mounted on the real path; rationale in [`P3b.md`](./P3b.md#endpoint-路径选型) |
+
+Reproduce:
+
+```bash
+# 1. Build packages with the new payment exports.
+npm run build:data-schemas && npm run build:api
+
+# 2. Run the criterion 4.2 + 4.3 e2e suites end-to-end.
+cd api && npx jest \
+  server/routes/payment/__tests__/payments.e2e.spec.js \
+  server/routes/__tests__/balance-gate.e2e.spec.js
+
+# 3. Or via the harness script (also validates docker-compose.test.yml):
+SKIP_DOCKER=1 bash e2e/run.sh
+```
 
 ## P3a Verification
 

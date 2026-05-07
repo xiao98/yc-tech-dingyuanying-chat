@@ -29,6 +29,8 @@ export * from './mcp/oauth/OAuthReconnectionManager';
 export * from './crypto';
 /* New-API admin provisioning (P2a) */
 export * from './newapi';
+/* Payments (P3b — webhook credit + replay protection) */
+export * from './payments';
 /* Flow */
 export * from './flow/manager';
 /* Middleware */

@@ -30,12 +30,14 @@ import { createAclEntryModel } from './aclEntry';
 import { createSystemGrantModel } from './systemGrant';
 import { createGroupModel } from './group';
 import { createConfigModel } from './config';
+import { createPaymentModel } from './payment';
 
 /**
  * Creates all database models for all collections
  */
 export function createModels(mongoose: typeof import('mongoose')) {
   return {
+    Payment: createPaymentModel(mongoose),
     User: createUserModel(mongoose),
     Token: createTokenModel(mongoose),
     Session: createSessionModel(mongoose),
