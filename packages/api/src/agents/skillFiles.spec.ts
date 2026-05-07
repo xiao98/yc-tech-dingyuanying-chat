@@ -100,7 +100,7 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
     expect(batchUploadCodeEnvFiles).toHaveBeenCalledTimes(1);
     const [uploadArgs] = batchUploadCodeEnvFiles.mock.calls[0];
     expect(uploadArgs).not.toHaveProperty('apiKey');
-    expect(uploadArgs.entity_id).toBe(SKILL_ID.toString());
+    expect(uploadArgs).not.toHaveProperty('entity_id');
     expect(uploadArgs.read_only).toBe(true);
     expect(uploadArgs.files).toHaveLength(fileRecords.length + 1);
     expect(uploadArgs.files.map((f: { filename: string }) => f.filename)).toEqual(
@@ -158,7 +158,6 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
         storage_session_id: 'session-42',
         kind: 'skill',
         version: SKILL_VERSION,
-        entity_id: SKILL_ID.toString(),
       },
     ]);
   });
@@ -232,7 +231,6 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
           id: SKILL_ID.toString(),
           storage_session_id: 'session-42',
           file_id: 'file-1',
-          entity_id: SKILL_ID.toString(),
           version: SKILL_VERSION,
         },
       },
@@ -257,7 +255,6 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
           id: SKILL_ID.toString(),
           storage_session_id: 'session-cached',
           file_id: 'file-cached',
-          entity_id: SKILL_ID.toString(),
           version: SKILL_VERSION,
         },
       },
@@ -282,7 +279,6 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
         storage_session_id: 'session-cached',
         kind: 'skill',
         version: SKILL_VERSION,
-        entity_id: SKILL_ID.toString(),
       },
     ]);
   });

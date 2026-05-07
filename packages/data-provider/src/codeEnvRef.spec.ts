@@ -4,6 +4,7 @@
  * agents `ToolNode` (forward to codeapi). This file just pins the
  * shape so a future refactor can't silently widen or narrow the
  * fields without surfacing here. */
+import { CODE_ENV_KINDS } from './codeEnvRef';
 import type { CodeEnvKind, CodeEnvRef } from './codeEnvRef';
 
 describe('CodeEnvRef', () => {
@@ -40,8 +41,11 @@ describe('CodeEnvRef', () => {
     expect(ref.kind).toBe('agent');
   });
 
-  it('CodeEnvKind union enumerates all four kinds', () => {
-    const kinds: CodeEnvKind[] = ['skill', 'agent', 'user', 'system'];
-    expect(kinds).toHaveLength(4);
+  it('CODE_ENV_KINDS pins the closed set of kinds', () => {
+    /* Adding a new kind requires updating the runtime tuple AND
+     * surfacing it in `resolveSessionKey`'s exhaustive switch. The
+     * `as const` shape makes this catch-able by the type system. */
+    const kinds: CodeEnvKind[] = [...CODE_ENV_KINDS];
+    expect(kinds).toEqual(['skill', 'agent', 'user']);
   });
 });

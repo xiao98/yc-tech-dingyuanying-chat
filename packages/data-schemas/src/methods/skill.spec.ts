@@ -1346,7 +1346,6 @@ describe('SkillFile methods', () => {
           id: entityId,
           storage_session_id: 'sess-old',
           file_id: 'file-old',
-          entity_id: entityId,
           version: 1,
         },
       },
@@ -1460,7 +1459,6 @@ describe('SkillFile methods', () => {
             id: entityId,
             storage_session_id: 'session-1',
             file_id: 'file-1',
-            entity_id: entityId,
             version: 1,
           },
         },
@@ -1475,7 +1473,6 @@ describe('SkillFile methods', () => {
         id: entityId,
         storage_session_id: 'session-1',
         file_id: 'file-1',
-        entity_id: entityId,
         version: 1,
       });
     });

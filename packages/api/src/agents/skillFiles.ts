@@ -35,7 +35,6 @@ export interface PrimeSkillFilesParams {
   batchUploadCodeEnvFiles: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
-    entity_id?: string;
     /** When true, codeapi tags every file in the batch as infrastructure
      *  (read-only inputs that must never surface as generated artifacts,
      *  even if sandboxed code mutates the bytes on disk). */
@@ -67,7 +66,6 @@ export interface PrimeSkillFilesResult {
     id: string;
     storage_session_id: string;
     name: string;
-    entity_id?: string;
   }>;
 }
 
@@ -130,7 +128,6 @@ export async function primeSkillFiles(
               id: ref.file_id,
               storage_session_id: ref.storage_session_id,
               name: `${skill.name}/${sf.relativePath}`,
-              ...(ref.entity_id != null ? { entity_id: ref.entity_id } : {}),
             });
           }
 
@@ -185,7 +182,6 @@ export async function primeSkillFiles(
     const result = await batchUploadCodeEnvFiles({
       req,
       files: filesToUpload,
-      entity_id: entityId,
       /* Skill files are infrastructure: SKILL.md + bundled scripts/schemas/
        * docs that the agent reads but should never edit. Tag the upload as
        * read-only so codeapi seals the inputs (chmod 444 in-sandbox) and
@@ -204,7 +200,6 @@ export async function primeSkillFiles(
         id: f.fileId,
         storage_session_id: result.storage_session_id,
         name: f.filename,
-        entity_id: entityId,
       }));
 
     // Treat partial upload failures as a priming failure — missing bundled
@@ -243,7 +238,6 @@ export async function primeSkillFiles(
             id: entityId,
             storage_session_id: result.storage_session_id,
             file_id: f.fileId,
-            entity_id: entityId,
             version: skill.version,
           };
           return {
@@ -405,7 +399,6 @@ export async function primeInvokedSkills(
             storage_session_id: ref!.storage_session_id,
             kind: ref!.kind,
             ...(ref!.version != null ? { version: ref!.version } : {}),
-            ...(ref!.entity_id != null ? { entity_id: ref!.entity_id } : {}),
           }));
           if (cachedFiles.length > 0) {
             logger.debug(
@@ -427,16 +420,17 @@ export async function primeInvokedSkills(
       }
     }
 
-    // Per-skill upload: each skill gets its own session with entity_id=skillId.
-    // primeSkillFiles handles freshness caching per-skill, so only expired
-    // skills re-upload. CodeAPI handles mixed storage_session_ids natively.
+    // Per-skill upload: each skill gets its own storage session keyed
+    // by `(kind: 'skill', id: skillId, version: skill.version)`.
+    // primeSkillFiles handles freshness caching per-skill, so only
+    // expired skills re-upload. CodeAPI handles mixed
+    // storage_session_ids natively.
     const allPrimedFiles: Array<{
       id: string;
       name: string;
       storage_session_id: string;
       kind: 'skill';
-      version?: number;
-      entity_id?: string;
+      version: number;
     }> = [];
     const primeResults = await Promise.allSettled(
       fileListResults.map(async ({ skill, files }) => {
@@ -462,7 +456,6 @@ export async function primeInvokedSkills(
             storage_session_id: f.storage_session_id,
             kind: 'skill',
             version: r.value.skill.version,
-            ...(f.entity_id != null ? { entity_id: f.entity_id } : {}),
           });
         }
       } else if (r.status === 'rejected') {

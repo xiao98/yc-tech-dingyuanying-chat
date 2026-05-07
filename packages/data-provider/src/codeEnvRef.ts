@@ -1,17 +1,23 @@
 /**
- * Resource kind for sandbox file caching. Drives the `sessionKey`
- * shape that codeapi derives — explicit instead of emergent.
+ * Closed set of resource kinds for sandbox file caching. Defined as a
+ * `as const` tuple so the runtime list and the TypeScript union can't
+ * drift on future additions — adding a new kind to the tuple updates
+ * both at once.
  *
- * - `skill`: shared per skill identity. Cross-user sharing within an
- *   org/tenant. SessionKey omits the user dimension.
+ * - `skill`: shared per skill identity. Cross-user-within-tenant
+ *   sharing. CodeAPI sessionKey omits the user dimension.
+ *   `version` is required (the skill's monotonic counter scopes the
+ *   cache per revision so any edit invalidates the prior cache
+ *   entry naturally).
  * - `agent`: shared per agent identity. Same sharing semantic as
  *   skills (agents are addressable resources accessible to a
  *   permission-defined audience).
- * - `user`: user-private. SessionKey includes the user dimension.
- *   Used for chat attachments and user-uploaded artifacts.
- * - `system`: shared system-wide. Reserved for built-in resources.
+ * - `user`: user-private. CodeAPI sessionKey is keyed by the
+ *   requesting user from auth context. Used for chat attachments
+ *   and code-output artifacts.
  */
-export type CodeEnvKind = 'skill' | 'agent' | 'user' | 'system';
+export const CODE_ENV_KINDS = ['skill', 'agent', 'user'] as const;
+export type CodeEnvKind = (typeof CODE_ENV_KINDS)[number];
 
 /**
  * Typed reference to a file in the code-execution sandbox.
@@ -30,15 +36,21 @@ export type CodeEnvKind = 'skill' | 'agent' | 'user' | 'system';
  * a designed property of the kind switch, not an emergent side
  * effect. See codeapi #1455 / agents #148 / LC #12960.
  *
- * `version` carries the resource version when relevant — primarily
- * for `kind: 'skill'`, where bumping the version (on any skill edit)
- * scopes the cache to that revision.
+ * `version` carries the resource version when relevant. Required for
+ * `kind: 'skill'`; absent for other kinds. Codeapi's validator
+ * enforces this.
  */
 export interface CodeEnvRef {
   kind: CodeEnvKind;
+  /** Resource identity. Semantics depend on `kind`:
+   *  - `skill`: skill `_id` (sessionKey-meaningful, cross-user shared).
+   *  - `agent`: agent id (sessionKey-meaningful, cross-user shared).
+   *  - `user`: informational only — sessionKey derivation uses the
+   *    requesting user from auth context. Kept on the type for shape
+   *    uniformity across kinds; do not rely on it for routing. */
   id: string;
   storage_session_id: string;
   file_id: string;
-  entity_id?: string;
+  /** Required when `kind === 'skill'`; absent otherwise. */
   version?: number;
 }

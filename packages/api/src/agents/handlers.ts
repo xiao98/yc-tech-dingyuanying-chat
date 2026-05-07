@@ -93,7 +93,6 @@ export interface ToolExecuteOptions {
   batchUploadCodeEnvFiles?: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
-    entity_id?: string;
   }) => Promise<{
     storage_session_id: string;
     files: Array<{ fileId: string; filename: string }>;
@@ -903,9 +902,8 @@ async function handleSkillToolCall(
           id: string;
           name: string;
           storage_session_id: string;
-          kind?: 'skill' | 'agent' | 'user' | 'system';
+          kind?: 'skill' | 'agent' | 'user';
           version?: number;
-          entity_id?: string;
         }>;
       }
     | undefined;
@@ -949,7 +947,6 @@ async function handleSkillToolCall(
             storage_session_id: f.storage_session_id,
             kind: 'skill',
             version: skill.version,
-            ...(f.entity_id != null ? { entity_id: f.entity_id } : {}),
           })),
         };
       }

@@ -606,6 +606,52 @@ describe('Code Process', () => {
         });
       });
 
+      /* Phase C lock-in: outputs are ALWAYS user-scoped, never skill-scoped.
+       * Even when an execution turn invoked a skill (so input files were
+       * `kind: 'skill'` shared cross-user), the resulting output bucket
+       * tags `kind: 'user'` with the requesting user's id. This prevents
+       * cross-user leakage of artifacts a skill may have generated for
+       * one user — each user gets their own output sessionKey on codeapi.
+       *
+       * Drift hazard: someone reading the simple user-derivation may
+       * later think "we should respect input kind for outputs too" and
+       * widen output scope to match input scope. This test pins the
+       * intentional asymmetry so that change requires updating the test
+       * (and re-reading the rationale). */
+      it('outputs are user-scoped regardless of which skill the execution invoked', async () => {
+        const smallBuffer = Buffer.alloc(100);
+        mockAxios.mockResolvedValue({ data: smallBuffer });
+
+        const userA = { ...mockReq, user: { id: 'user-A' } };
+        const userB = { ...mockReq, user: { id: 'user-B' } };
+
+        const { file: outputA } = await processCodeOutput({ ...baseParams, req: userA });
+        const { file: outputB } = await processCodeOutput({ ...baseParams, req: userB });
+
+        // Each user's output ref is keyed by their own user id. The
+        // `id` field tracks the requesting user, never the skill.
+        expect(outputA.metadata.codeEnvRef).toEqual({
+          kind: 'user',
+          id: 'user-A',
+          storage_session_id: 'session-123',
+          file_id: 'file-id-123',
+        });
+        expect(outputB.metadata.codeEnvRef).toEqual({
+          kind: 'user',
+          id: 'user-B',
+          storage_session_id: 'session-123',
+          file_id: 'file-id-123',
+        });
+
+        // No skill identity leaks into the output ref under any property.
+        const refA = outputA.metadata.codeEnvRef;
+        const refB = outputB.metadata.codeEnvRef;
+        expect(refA.kind).not.toBe('skill');
+        expect(refB.kind).not.toBe('skill');
+        expect(refA).not.toHaveProperty('version');
+        expect(refB).not.toHaveProperty('version');
+      });
+
       it('should set correct context for code-generated files', async () => {
         const smallBuffer = Buffer.alloc(100);
         mockAxios.mockResolvedValue({ data: smallBuffer });
@@ -1445,7 +1491,7 @@ describe('Code Process', () => {
       // The seed list (consumed by buildInitialToolSessions) MUST carry
       // the post-reupload ids — not the stale pre-reupload ones.
       expect(result.files).toEqual([
-        { id: 'NEW_ID', session_id: 'NEW_SESSION', name: 'sentinel.txt' },
+        { id: 'NEW_ID', storage_session_id: 'NEW_SESSION', name: 'sentinel.txt', kind: 'user' },
       ]);
     });
 
@@ -1505,7 +1551,6 @@ describe('Code Process', () => {
             id: 'user-123',
             storage_session_id: 'STRUCT_SESSION',
             file_id: 'STRUCT_ID',
-            entity_id: 'user-123',
           },
         },
       };
@@ -1526,9 +1571,9 @@ describe('Code Process', () => {
       expect(result.files).toEqual([
         {
           id: 'STRUCT_ID',
-          session_id: 'STRUCT_SESSION',
+          storage_session_id: 'STRUCT_SESSION',
           name: 'sentinel.txt',
-          entity_id: 'user-123',
+          kind: 'user',
         },
       ]);
     });

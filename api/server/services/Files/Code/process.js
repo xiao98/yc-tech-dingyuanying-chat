@@ -650,13 +650,15 @@ function checkIfActive(dateString) {
 async function getSessionInfo(ref) {
   try {
     const baseURL = getCodeBaseURL();
-    const params = {};
-    if (ref.entity_id) params.entity_id = ref.entity_id;
-
+    /* CodeAPI resolves the bucket's sessionKey from auth context
+     * (`<tenant>:<kind>:<id>...`). The freshness check just hits
+     * `/sessions/<storage_session_id>/objects/<file_id>` — codeapi's
+     * lookup of the cached sessionKey on the storage bucket
+     * authoritative-checks the requesting user. No per-request
+     * params needed. */
     const response = await axios({
       method: 'get',
       url: `${baseURL}/sessions/${ref.storage_session_id}/objects/${ref.file_id}`,
-      params,
       headers: {
         'User-Agent': 'LibreChat/1.0',
       },
@@ -724,11 +726,10 @@ const primeFiles = async (options) => {
     if (ref) {
       const session_id = ref.storage_session_id;
       const id = ref.file_id;
-      const entityId = ref.entity_id;
 
       /**
        * `pushFile` accepts optional overrides so the reupload path can
-       * push the FRESH `(session_id, id, entity_id)` parsed off the new
+       * push the FRESH `(storage_session_id, file_id)` from the new
        * `codeEnvRef`. Without these overrides, the closure would
        * capture the stale pre-reupload refs from the outer loop and
        * the in-memory `files` array (now consumed by
@@ -738,11 +739,11 @@ const primeFiles = async (options) => {
        * inject the old one — bash_tool / read_file would 404 trying to
        * mount the file until the next turn re-reads metadata.
        *
-       * `entity_id` is forwarded so codeapi can resolve sessionKey
-       * per-file, allowing one execute to mix files uploaded under
-       * different entities (e.g. a skill bundle plus a user attachment).
+       * `kind`, `id`, `version` are preserved on the in-memory ref so
+       * codeapi can resolve sessionKey per-file (kind switch +
+       * tenant prefix from auth context).
        */
-      const pushFile = (overrideSessionId, overrideId, overrideEntityId) => {
+      const pushFile = (overrideSessionId, overrideId) => {
         if (!toolContext) {
           toolContext = `- Note: The following files are available in the "${Tools.execute_code}" tool environment:`;
         }
@@ -754,8 +755,6 @@ const primeFiles = async (options) => {
               ? ' (from previous code execution)'
               : ' (attached by user)';
         }
-
-        const entity_id = overrideEntityId ?? entityId;
 
         /* Surface the preview lifecycle so the LLM knows when a
          * prior-turn artifact's rich preview didn't materialize. The
@@ -775,9 +774,10 @@ const primeFiles = async (options) => {
         toolContext += `\n\t- /mnt/data/${file.filename}${fileSuffix}${previewSuffix}`;
         files.push({
           id: overrideId ?? id,
-          session_id: overrideSessionId ?? session_id,
+          storage_session_id: overrideSessionId ?? session_id,
           name: file.filename,
-          ...(entity_id ? { entity_id } : {}),
+          kind: ref.kind,
+          ...(ref.version != null ? { version: ref.version } : {}),
         });
       };
 
@@ -797,7 +797,6 @@ const primeFiles = async (options) => {
             req: options.req,
             stream,
             filename: file.filename,
-            entity_id: entityId,
           });
 
           /**
@@ -809,7 +808,7 @@ const primeFiles = async (options) => {
            * would silently re-introduce the bug `Graph.sessions`
            * seeding is supposed to fix.
            *
-           * `kind`, `id`, `entity_id` survive the round-trip: the
+           * `kind`, `id`, `version` survive the round-trip: the
            * upload preserves the resource identity, only the storage
            * pointer changes.
            */
@@ -818,7 +817,6 @@ const primeFiles = async (options) => {
             id: ref.id,
             storage_session_id: uploaded.storage_session_id,
             file_id: uploaded.file_id,
-            ...(entityId ? { entity_id: entityId } : {}),
             ...(ref.version != null ? { version: ref.version } : {}),
           };
 
@@ -832,7 +830,7 @@ const primeFiles = async (options) => {
             metadata: updatedMetadata,
           });
           sessions.set(newRef.storage_session_id, true);
-          pushFile(newRef.storage_session_id, newRef.file_id, newRef.entity_id);
+          pushFile(newRef.storage_session_id, newRef.file_id);
         } catch (error) {
           logger.error(
             `Error re-uploading file ${id} in session ${session_id}: ${error.message}`,
