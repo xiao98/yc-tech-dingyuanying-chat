@@ -5,3 +5,5 @@
 # stay LF so SHA256 is reproducible across platforms.
 api/server/locks/ding-yuanying.skill.md text eol=lf
 librechat.yaml text eol=lf
+# P2b: same — sidecar test fixture is asserted by SHA256.
+services/system-lock-proxy/test/fixtures/skill.md text eol=lf

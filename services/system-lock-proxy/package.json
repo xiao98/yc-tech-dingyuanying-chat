@@ -1,0 +1,33 @@
+{
+  "name": "system-lock-proxy",
+  "version": "1.0.0",
+  "description": "Sidecar reverse proxy that enforces messages[0].system override on OpenAI-compatible chat requests (YC TECH 丁元英 Chat P2b).",
+  "main": "src/index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest --runInBand"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/test/**/*.spec.js"
+    ],
+    "testTimeout": 15000
+  },
+  "keywords": [
+    "proxy",
+    "openai",
+    "system-lock",
+    "librechat",
+    "ycapi"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "jest": "^30.3.0"
+  }
+}
