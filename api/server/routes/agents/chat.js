@@ -8,6 +8,8 @@ const {
   buildEndpointOption,
   canAccessAgentFromBody,
 } = require('~/server/middleware');
+// YCAPI_SYSTEM_LOCK_HOOK — single-persona lock + 50k token cap (P1).
+const dingYuanyingLock = require('~/server/middleware/dingYuanyingLock');
 const { initializeClient } = require('~/server/services/Endpoints/agents');
 const AgentController = require('~/server/controllers/agents/request');
 const addTitle = require('~/server/services/Endpoints/agents/title');
@@ -25,6 +27,10 @@ const checkAgentResourceAccess = canAccessAgentFromBody({
   requiredPermission: PermissionBits.VIEW,
 });
 
+// YCAPI_SYSTEM_LOCK_HOOK: enforce token cap + force promptPrefix to SKILL.md
+// before buildEndpointOption (which reads req.body.promptPrefix into the
+// ephemeral agent's instructions in packages/api/src/agents/load.ts).
+router.use(dingYuanyingLock);
 router.use(moderateText);
 router.use(checkAgentAccess);
 router.use(checkAgentResourceAccess);

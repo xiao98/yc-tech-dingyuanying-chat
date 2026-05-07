@@ -1,3 +1,7 @@
 # Force LF line endings for shell scripts and git hooks (required for cross-platform compatibility)
 .husky/* text eol=lf
 *.sh text eol=lf
+# P1 (yc-tech-dingyuanying-chat): SKILL.md is content-hashed; line endings must
+# stay LF so SHA256 is reproducible across platforms.
+api/server/locks/ding-yuanying.skill.md text eol=lf
+librechat.yaml text eol=lf

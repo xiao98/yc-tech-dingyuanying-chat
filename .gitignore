@@ -72,8 +72,13 @@ bower_components/
 .flooignore
 
 #config file
-librechat.yaml
+# P1 (yc-tech-dingyuanying-chat): librechat.yaml is the persona lock file —
+# it must be committed so the deployment matches what's verified here.
+# Upstream LibreChat normally ignores this file; we keep it tracked.
 librechat.yml
+
+# P1 evidence dumps (ESLint JSON / tsc log — large, regeneratable)
+.p1-evidence/
 
 # Environment
 .npmrc

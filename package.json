@@ -63,6 +63,8 @@
     "e2e:github": "act -W .github/workflows/playwright.yml --secret-file my.secrets",
     "test:client": "cd client && npm run test:ci",
     "test:api": "cd api && npm run test:ci",
+    "test": "npm run test:api && npm run test:packages:api && npm run test:packages:data-provider && npm run test:packages:data-schemas",
+    "typecheck": "npx tsc --noEmit -p packages/data-provider/tsconfig.json && npx tsc --noEmit -p packages/data-schemas/tsconfig.json && npx tsc --noEmit -p packages/api/tsconfig.json && npx tsc --noEmit -p client/tsconfig.json",
     "test:packages:api": "cd packages/api && npm run test:ci",
     "test:packages:data-provider": "cd packages/data-provider && npm run test:ci",
     "test:packages:data-schemas": "cd packages/data-schemas && npm run test:ci",

@@ -1,3 +1,43 @@
+# yc-tech-dingyuanying-chat
+
+> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 stage only — no payments, no production deploy.
+
+## P1 Verification
+
+Full evidence in [`P1.md`](./P1.md). Quick summary:
+
+| Item | Value |
+|---|---|
+| Branch | `p1/ding-yuanying-lock` |
+| Bundled SKILL.md | `api/server/locks/ding-yuanying.skill.md` (LF, content-hashed) |
+| `librechat.yaml` ↔ SKILL.md SHA256 | both = `1a185d6fe3c330a4c4b2236c3ef7ade4a76936238f018d7f9fe9058f961818a6`, `MATCH = true` |
+| System-override middleware | `api/server/middleware/dingYuanyingLock.js` — grep `YCAPI_SYSTEM_LOCK_HOOK` |
+| Wired into | `api/server/routes/agents/chat.js` (first `router.use(...)` after the imports) |
+| Token cap | 50000 (`MAX_CONTEXT_TOKENS`); over-cap returns HTTP 400 `{error:"context too long",tokens,limit}` |
+| P1 own tests | **21 / 21 PASS** (18 unit + 3 supertest integration) |
+| P1 own statement coverage | **94.64%** |
+| `npm install` | EXIT 0 |
+| `npm run lint` (upstream script) | EXIT 2 — upstream Win-shell glob issue (no files actually linted); see [`P1.md`](./P1.md) |
+| `npx eslint .` (real full-repo) | EXIT 1 — 310 errors / 95 warnings, all upstream baseline |
+| P1 files lint (`npx eslint api/server/middleware/dingYuanyingLock.js …`) | EXIT 0 |
+| `npm run typecheck` (added by P1) | EXIT 2 — 154 `error TS` in upstream `.ts/.tsx`; P1 code is `.js` (not typechecked) |
+| `npm test` (root, 4 workspaces) | EXIT 1 — 3/4 workspaces fail due to missing Redis + mongodb-memory-server flakiness on Win; not P1-introduced |
+
+Reproduce:
+
+```bash
+# coverage + 21/21 pass (no infra needed)
+cd api && npx jest server/middleware/__tests__/dingYuanyingLock \
+            --coverage --collectCoverageFrom='server/middleware/dingYuanyingLock.js'
+
+# SHA match against ~/.claude/skills/ding-yuanying/SKILL.md
+node -e "const y=require('js-yaml');const fs=require('fs');const c=require('crypto');const cfg=y.load(fs.readFileSync('librechat.yaml','utf8'));const skill=fs.readFileSync(require('os').homedir()+'/.claude/skills/ding-yuanying/SKILL.md','utf8').replace(/\r\n/g,'\n').trim();const pp=cfg.modelSpecs.list[0].preset.promptPrefix.trim();console.log('MATCH',c.createHash('sha256').update(skill).digest('hex')===c.createHash('sha256').update(pp).digest('hex'));"
+```
+
+Out of P1 scope (deferred): YCAPI gateway-side middleware, payments, Dockerfile/compose/deploy.sh, Scaleway production deploy. See `P1.md`.
+
+---
+
 <p align="center">
   <a href="https://librechat.ai">
     <img src="client/public/assets/logo.svg" height="256">
