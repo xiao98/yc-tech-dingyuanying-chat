@@ -13,6 +13,37 @@ const axios = createAxiosInstance();
 
 const MAX_FILE_SIZE = 150 * 1024 * 1024;
 
+const VALID_CODE_ENV_KINDS = new Set(['skill', 'agent', 'user']);
+
+/**
+ * Appends `kind`/`id`/`version?` form fields. Validates the same shape
+ * the codeapi resolver enforces server-side (`version` required for
+ * `'skill'`, forbidden otherwise; `kind` from the closed set) so a bad
+ * caller fails fast on the client instead of round-tripping a 400.
+ *
+ * @param {FormData} form
+ * @param {{ kind?: string; id?: string; version?: number }} identity
+ */
+function appendCodeEnvFileIdentity(form, { kind, id, version }) {
+  if (!kind || !VALID_CODE_ENV_KINDS.has(kind)) {
+    throw new Error(`uploadCodeEnvFile: invalid kind "${kind}"`);
+  }
+  if (!id) {
+    throw new Error(`uploadCodeEnvFile: missing id for kind "${kind}"`);
+  }
+  if (kind === 'skill' && version == null) {
+    throw new Error(`uploadCodeEnvFile: kind "skill" requires a numeric version`);
+  }
+  if (kind !== 'skill' && version != null) {
+    throw new Error(`uploadCodeEnvFile: version is only valid for kind "skill"`);
+  }
+  form.append('kind', kind);
+  form.append('id', id);
+  if (version != null) {
+    form.append('version', String(version));
+  }
+}
+
 /**
  * Retrieves a download stream for a specified file.
  * @param {string} fileIdentifier - The identifier for the file (e.g., "session_id/fileId").
@@ -49,17 +80,31 @@ async function getCodeOutputDownloadStream(fileIdentifier) {
 
 /**
  * Uploads a file to the Code Environment server.
+ *
+ * `kind`/`id`/`version?` are required so codeapi can route the upload to
+ * the correct sessionKey bucket — `<tenant>:<kind>:<id>[:v:<version>]`
+ * for shared kinds, `<tenant>:user:<authContext.userId>` for `user`.
+ * Without these, codeapi falls back to user-scoped bucketing regardless
+ * of the resource the file belongs to, so skill-cache invalidation
+ * (driven by the version bump on edit) never fires. See codeapi #1455.
+ *
  * @param {Object} params - The params object.
  * @param {ServerRequest} params.req - The request object from Express. It should have a `user` property with an `id` representing the user
  * @param {import('fs').ReadStream | import('stream').Readable} params.stream - The read stream for the file.
  * @param {string} params.filename - The name of the file.
+ * @param {'skill' | 'agent' | 'user'} params.kind - Resource kind that owns this file's storage session.
+ * @param {string} params.id - Resource id (skillId / agentId / userId). Codeapi
+ *   ignores this for `kind: 'user'` (auth context provides userId), but it's
+ *   sent uniformly for shape symmetry with the discriminated union.
+ * @param {number} [params.version] - Required when `kind === 'skill'`; absent otherwise.
  * @returns {Promise<{ storage_session_id: string; file_id: string }>}
  *   The codeapi storage location of the uploaded file.
  * @throws {Error} If there's an error during the upload process.
  */
-async function uploadCodeEnvFile({ req, stream, filename }) {
+async function uploadCodeEnvFile({ req, stream, filename, kind, id, version }) {
   try {
     const form = new FormData();
+    appendCodeEnvFileIdentity(form, { kind, id, version });
     appendCodeEnvFile(form, stream, filename);
 
     const baseURL = getCodeBaseURL();
@@ -104,9 +149,15 @@ async function uploadCodeEnvFile({ req, stream, filename }) {
  * Uploads multiple files to the code execution environment in a single request.
  * Uses the /upload/batch endpoint which shares one session_id across all files.
  *
+ * `kind`/`id`/`version?` carry the resource identity for codeapi's sessionKey
+ * derivation — see `uploadCodeEnvFile` for the full motivation.
+ *
  * @param {object} params
  * @param {import('express').Request & { user: { id: string } }} params.req - The request object.
  * @param {Array<{ stream: NodeJS.ReadableStream; filename: string }>} params.files - Files to upload.
+ * @param {'skill' | 'agent' | 'user'} params.kind - Resource kind that owns the batch's storage session.
+ * @param {string} params.id - Resource id (skillId / agentId / userId).
+ * @param {number} [params.version] - Required when `kind === 'skill'`; absent otherwise.
  * @param {boolean} [params.read_only] - When true, codeapi tags every file in
  *   the batch as infrastructure (e.g. skill files). The flag is persisted as
  *   MinIO object metadata (`X-Amz-Meta-Read-Only`) and travels with the file
@@ -116,9 +167,10 @@ async function uploadCodeEnvFile({ req, stream, filename }) {
  * @returns {Promise<{ storage_session_id: string; files: Array<{ fileId: string; filename: string }> }>}
  * @throws {Error} If the batch upload fails entirely.
  */
-async function batchUploadCodeEnvFiles({ req, files, read_only = false }) {
+async function batchUploadCodeEnvFiles({ req, files, kind, id, version, read_only = false }) {
   try {
     const form = new FormData();
+    appendCodeEnvFileIdentity(form, { kind, id, version });
     if (read_only) {
       form.append('read_only', 'true');
     }

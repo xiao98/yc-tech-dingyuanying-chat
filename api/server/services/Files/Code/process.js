@@ -793,10 +793,18 @@ const primeFiles = async (options) => {
             FileSources.execute_code,
           );
           const stream = await getDownloadStream(options.req, file.filepath);
+          /* Reupload preserves the resource identity from the existing
+           * ref so codeapi re-buckets under the same sessionKey shape
+           * (skill stays skill, user stays user). Without this, a
+           * skill-cache-miss reupload would land in the user bucket
+           * and never re-shareable cross-user. */
           const uploaded = await uploadCodeEnvFile({
             req: options.req,
             stream,
             filename: file.filename,
+            kind: ref.kind,
+            id: ref.id,
+            ...(ref.kind === 'skill' ? { version: ref.version } : {}),
           });
 
           /**

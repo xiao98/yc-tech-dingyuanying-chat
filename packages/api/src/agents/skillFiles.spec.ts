@@ -102,6 +102,14 @@ describe('primeInvokedSkills — execute_code capability gate', () => {
     expect(uploadArgs).not.toHaveProperty('apiKey');
     expect(uploadArgs).not.toHaveProperty('entity_id');
     expect(uploadArgs.read_only).toBe(true);
+    /* Resource identity for codeapi's sessionKey: skill files share
+     * cross-user-within-tenant under `<tenant>:skill:<id>:v:<version>`.
+     * Without these on the upload, codeapi falls back to user bucketing
+     * and skill-cache invalidation (driven by version bump on edit)
+     * never fires. See codeapi #1455 (option α). */
+    expect(uploadArgs.kind).toBe('skill');
+    expect(uploadArgs.id).toBe(SKILL_ID.toString());
+    expect(uploadArgs.version).toBe(SKILL_VERSION);
     expect(uploadArgs.files).toHaveLength(fileRecords.length + 1);
     expect(uploadArgs.files.map((f: { filename: string }) => f.filename)).toEqual(
       expect.arrayContaining(['brand-guidelines/SKILL.md', 'brand-guidelines/references/style.md']),

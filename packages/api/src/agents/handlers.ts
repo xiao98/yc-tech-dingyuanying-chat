@@ -89,10 +89,16 @@ export interface ToolExecuteOptions {
     getDownloadStream?: (req: ServerRequest, filepath: string) => Promise<NodeJS.ReadableStream>;
     [key: string]: unknown;
   };
-  /** Batch uploads files to the code execution environment */
+  /** Batch uploads files to the code execution environment. `kind`/`id`/
+   *  `version?` carry the resource identity codeapi uses to derive the
+   *  sessionKey for the batch's storage bucket. */
   batchUploadCodeEnvFiles?: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
+    kind: 'skill' | 'agent' | 'user';
+    id: string;
+    version?: number;
+    read_only?: boolean;
   }) => Promise<{
     storage_session_id: string;
     files: Array<{ fileId: string; filename: string }>;

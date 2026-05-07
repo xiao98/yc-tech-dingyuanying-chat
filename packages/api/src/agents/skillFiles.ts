@@ -35,6 +35,13 @@ export interface PrimeSkillFilesParams {
   batchUploadCodeEnvFiles: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
+    /** Resource kind that owns the batch's storage session. Drives codeapi's
+     *  sessionKey derivation (`<tenant>:<kind>:<id>[:v:<version>]`). */
+    kind: 'skill' | 'agent' | 'user';
+    /** Resource id (skillId / agentId / userId). */
+    id: string;
+    /** Required when `kind === 'skill'`; forbidden otherwise. */
+    version?: number;
     /** When true, codeapi tags every file in the batch as infrastructure
      *  (read-only inputs that must never surface as generated artifacts,
      *  even if sandboxed code mutates the bytes on disk). */
@@ -182,6 +189,13 @@ export async function primeSkillFiles(
     const result = await batchUploadCodeEnvFiles({
       req,
       files: filesToUpload,
+      /* Resource identity for codeapi's sessionKey: skill files share
+       * cross-user-within-tenant under `<tenant>:skill:<id>:v:<version>`.
+       * Bumping `skill.version` on edit naturally invalidates the prior
+       * cache entry under the new sessionKey. */
+      kind: 'skill',
+      id: entityId,
+      version: skill.version,
       /* Skill files are infrastructure: SKILL.md + bundled scripts/schemas/
        * docs that the agent reads but should never edit. Tag the upload as
        * read-only so codeapi seals the inputs (chmod 444 in-sandbox) and

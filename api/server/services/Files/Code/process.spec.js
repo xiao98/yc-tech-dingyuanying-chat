@@ -1495,6 +1495,50 @@ describe('Code Process', () => {
       ]);
     });
 
+    /* Phase C / option α (codeapi #1455): reupload preserves the
+     * resource identity from the existing ref so codeapi re-buckets
+     * under the same sessionKey shape. Without this, a skill-cache-miss
+     * reupload lands in the user bucket and is no longer cross-user
+     * shareable. */
+    it('reupload forwards kind/id (and version when skill) from the existing ref', async () => {
+      const dbFile = {
+        file_id: 'librechat-file-id',
+        filename: 'sentinel.txt',
+        filepath: '/uploads/sentinel.txt',
+        source: 'local',
+        context: 'execute_code',
+        metadata: {
+          codeEnvRef: {
+            kind: 'skill',
+            id: 'skill-99',
+            storage_session_id: 'OLD_SESSION',
+            file_id: 'OLD_ID',
+            version: 4,
+          },
+        },
+      };
+      getFiles.mockResolvedValue([dbFile]);
+
+      const { handleFileUpload } = setupReuploadMocks({
+        storage_session_id: 'NEW_SESSION',
+        file_id: 'NEW_ID',
+      });
+
+      await primeFiles({
+        req: { user: { id: 'user-123', role: 'USER' } },
+        tool_resources: {
+          execute_code: { file_ids: ['librechat-file-id'], files: [] },
+        },
+        agentId: 'agent-id',
+      });
+
+      expect(handleFileUpload).toHaveBeenCalledTimes(1);
+      const uploadArgs = handleFileUpload.mock.calls[0][0];
+      expect(uploadArgs.kind).toBe('skill');
+      expect(uploadArgs.id).toBe('skill-99');
+      expect(uploadArgs.version).toBe(4);
+    });
+
     it('persists fresh codeEnvRef (kind/id preserved) on the DB record after reupload', async () => {
       const dbFile = {
         file_id: 'librechat-file-id',
