@@ -1,6 +1,111 @@
 # yc-tech-dingyuanying-chat
 
-> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. No payments yet, no production deploy yet.
+> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. P2b = system-lock sidecar reverse proxy. **P3a = deploy infra + payment route scaffolding (no real webhook handlers yet — those land in P3b)**.
+
+## P3a Verification
+
+Branch: `p3a/deploy-infra` (built on `p2-integrated` `f2c69a6a9`).
+
+### Service topology
+
+```
+                 ┌────────────────────────────────────────────────────┐
+internet ──443──▶│ nginx           (TLS terminator + LE auto-renew)   │
+                 └────────────────────┬───────────────────────────────┘
+                                      │ http://librechat-api:3080
+                                      ▼
+                  ┌──────────────────────────────────────────────┐
+                  │ librechat-api    (Express monolith)          │
+                  │  ├── /api/...           normal LibreChat     │
+                  │  └── /api/payment/{alipay,wxpay,stripe}      │
+                  │       └── 501 stub today, P3b webhook handler│
+                  └──────┬─────────────────────────┬─────────────┘
+                         │                         │
+                         │ baseURL=...             │
+                         ▼                         ▼
+            ┌────────────────────────┐    ┌──────────────────┐
+            │ system-lock-proxy:8080 │    │ mongo:27017      │
+            │  rewrite messages[0]   │    │ redis:6379       │
+            │  to locked SKILL.md    │    └──────────────────┘
+            └───────────┬────────────┘
+                        │ UPSTREAM_BASE_URL=$YCAPI_BASE_URL
+                        ▼
+                ┌───────────────────┐
+                │ external YCAPI    │
+                └───────────────────┘
+```
+
+Only `nginx` exposes ports to the host (80, 443). All other services live on the private `ycchat-net` bridge. `mongo` / `redis` / sidecar SKILL.md / TLS certs persist via named volumes / bind mounts.
+
+### Deploying
+
+```bash
+# 1. copy .env.sample → .env, fill every <placeholder>
+cp .env.sample .env
+$EDITOR .env
+
+# 2. ensure $DOMAIN already resolves to this server's public IP
+
+# 3. one command — fail-fasts before any docker call if env is incomplete
+bash deploy.sh
+```
+
+`deploy.sh` is idempotent. First run boots nginx HTTP-only, runs `certbot certonly --webroot`, restarts nginx with the issued cert, then `docker compose up -d` and polls `https://$DOMAIN/api/health` for up to 60 s. Subsequent runs detect the existing cert and skip the bootstrap step.
+
+### Required env vars (Goal criterion 8)
+
+`deploy.sh` exits 1 with the **first missing var named** if any of these is unset or empty. Provenance / format notes for each are in [`.env.sample`](./.env.sample).
+
+| Group | Vars |
+|---|---|
+| Upstream YCAPI | `YCAPI_BASE_URL` `YCAPI_ADMIN_KEY` |
+| New-API admin (P2a) | `NEWAPI_ADMIN_BASE_URL` `NEWAPI_ADMIN_KEY` |
+| WeChat Pay APIv3 | `WXPAY_MCH_ID` `WXPAY_API_V3_KEY` `WXPAY_CERT_PATH` |
+| Alipay open-platform | `ALIPAY_APP_ID` `ALIPAY_PRIVATE_KEY_PATH` `ALIPAY_PUBLIC_KEY_PATH` |
+| Stripe | `STRIPE_SECRET_KEY` `STRIPE_WEBHOOK_SECRET` |
+| Database / auth | `MONGO_URI` `JWT_SECRET` |
+| Public DNS | `DOMAIN` |
+| Sub-key crypto (P2a) | `SUBKEY_ENCRYPTION_KEY` |
+| Sidecar (P2b) | `SKILL_MD_PATH` `UPSTREAM_BASE_URL` |
+
+Negative test (no env at all):
+```bash
+env -i bash deploy.sh
+# → [deploy.sh] FATAL: missing required env var(s): YCAPI_BASE_URL ...
+# → [deploy.sh] First missing: YCAPI_BASE_URL
+# → exit code 1
+```
+
+### What's in P3a vs. deferred to P3b
+
+| Item | P3a status | Deferred to P3b |
+|---|---|---|
+| `api/server/routes/payment/{alipay,wxpay,stripe}.js` | files exist, mounted at `/api/payment/*`, return **501** | actual webhook signature verification + Payment doc upsert |
+| `packages/data-schemas/src/schema/payment.ts` | shipped — `channel_ref` UNIQUE constraint enforces criterion 4.2 replay protection at the DB level | — |
+| `Dockerfile` (LibreChat backend) | unchanged, used as-is by `librechat-api` build | — |
+| `docker-compose.yml` | 6 services + 2 volumes + 1 network — `docker compose config` exits 0 | — |
+| `nginx/nginx.conf.template` + `certbot` integration in `deploy.sh` | HTTP-01 webroot challenge, idempotent bootstrap | LE auto-renew cron / systemd timer |
+| `e2e/run.sh` + `e2e/docker-compose.test.yml` | scaffold only — composes mongo/redis + placeholder mocks | real mock New-API + mock YCAPI + jest spec files including `payments-webhook.spec.js` |
+| Production smoke test (criterion 5/6) | **NOT RUN** — needs real Scaleway node + 3 sandbox merchant credentials | run after P3b on actual sandbox |
+
+### Tests still passing on this branch
+
+```bash
+# 32 / 32 — P1 + P1.5 + P2a (LibreChat backend, jest in-process)
+cd api && npx jest \
+  server/middleware/__tests__/dingYuanyingLock \
+  server/middleware/__tests__/attachSubkey \
+  server/services/__tests__/newapi-provisioning
+
+# 8 / 8 — P2b sidecar (real http.createServer mocks)
+cd services/system-lock-proxy && npm test
+
+# docker-compose syntax (with all required env exported)
+docker compose config -q && echo OK
+
+# deploy.sh fail-fast
+env -i bash deploy.sh   # exits 1 with "First missing: YCAPI_BASE_URL"
+```
 
 ## P2a Verification
 

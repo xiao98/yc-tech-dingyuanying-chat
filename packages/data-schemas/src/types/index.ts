@@ -38,3 +38,5 @@ export * from './admin';
 export * from './web';
 /* MCP Servers */
 export * from './mcp';
+/* Payments — P3a schema (handlers in P3b) */
+export * from './payment';

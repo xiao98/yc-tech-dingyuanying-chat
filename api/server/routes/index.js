@@ -32,10 +32,16 @@ const auth = require('./auth');
 const keys = require('./keys');
 const user = require('./user');
 const mcp = require('./mcp');
+const paymentAlipay = require('./payment/alipay');
+const paymentWxpay = require('./payment/wxpay');
+const paymentStripe = require('./payment/stripe');
 
 module.exports = {
   mcp,
   auth,
+  paymentAlipay,
+  paymentWxpay,
+  paymentStripe,
   adminAuth,
   adminConfig,
   adminGrants,

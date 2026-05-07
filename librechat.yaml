@@ -262,6 +262,13 @@ endpoints:
   custom:
     - name: ycapi
       apiKey: '${YCAPI_KEY}'
+      # P3a: in docker-compose `librechat-api.environment` overrides
+      # YCAPI_BASE_URL to `http://system-lock-proxy:8080` so every
+      # chat request goes through the sidecar (P2b enforcement). The
+      # sidecar then forwards to the real YCAPI URL set in its own
+      # UPSTREAM_BASE_URL env. Outside compose, set YCAPI_BASE_URL
+      # in `.env` to whichever upstream you want — typically the
+      # sidecar URL in prod, or YCAPI directly in unit-test runs.
       baseURL: '${YCAPI_BASE_URL}'
       models:
         default: ['gpt-5']

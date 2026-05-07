@@ -1,0 +1,62 @@
+# YC TECH 丁元英 Chat — e2e harness scaffolding (P3a placeholder).
+# ==================================================================
+# P3b will populate `mock-newapi` and `mock-ycapi` with stub HTTP
+# servers (express + nock-style fixtures) so the chat round-trip and
+# payment webhook flows can run hermetically. P3a only ships the
+# scaffold so `e2e/run.sh` can compose-up / compose-down without
+# editing.
+
+services:
+  mock-mongo:
+    image: mongo:7
+    container_name: ycchat-e2e-mongo
+    command: mongod --noauth
+    networks:
+      - e2e-net
+
+  mock-redis:
+    image: redis:7-alpine
+    container_name: ycchat-e2e-redis
+    networks:
+      - e2e-net
+
+  # P3b will replace these with real mock implementations.
+  mock-newapi:
+    image: nginx:alpine
+    container_name: ycchat-e2e-mock-newapi
+    networks:
+      - e2e-net
+
+  mock-ycapi:
+    image: nginx:alpine
+    container_name: ycchat-e2e-mock-ycapi
+    networks:
+      - e2e-net
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ycchat-e2e-app
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - MONGO_URI=mongodb://mock-mongo:27017/LibreChat
+      - JWT_SECRET=e2e-stub-jwt-secret-do-not-ship
+      - YCAPI_BASE_URL=http://mock-ycapi
+      - YCAPI_ADMIN_KEY=e2e-stub
+      - NEWAPI_ADMIN_BASE_URL=http://mock-newapi
+      - NEWAPI_ADMIN_KEY=e2e-stub
+      - SUBKEY_ENCRYPTION_KEY=00000000000000000000000000000000000000000000000000000000000000aa
+      - DOMAIN=e2e.local
+    depends_on:
+      - mock-mongo
+      - mock-redis
+      - mock-newapi
+      - mock-ycapi
+    networks:
+      - e2e-net
+
+networks:
+  e2e-net:
+    driver: bridge

@@ -199,6 +199,14 @@ const startServer = async () => {
   app.use('/api/tags', routes.tags);
   app.use('/api/mcp', routes.mcp);
 
+  /* PAYMENT_WEBHOOK_HOOK
+   * P3a stubs (return 501). Real webhook handlers (signature verify +
+   * channel_ref idempotency + Payment doc upsert) land in P3b.
+   * Mounted before `apiNotFound` so 501 is returned, not 404. */
+  app.use('/api/payment/alipay', routes.paymentAlipay);
+  app.use('/api/payment/wxpay', routes.paymentWxpay);
+  app.use('/api/payment/stripe', routes.paymentStripe);
+
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);
 
