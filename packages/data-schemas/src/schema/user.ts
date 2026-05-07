@@ -162,6 +162,20 @@ const userSchema = new Schema<IUser>(
       type: String,
       index: true,
     },
+    /**
+     * P2a (NEWAPI_PROVISIONING_HOOK): per-user New-API token key, encrypted
+     * with AES-256-GCM via `@librechat/api` `encryptSubkey`. `select:false`
+     * keeps it out of every default `findOne` projection so it is only
+     * surfaced when explicitly requested by the chat-time decrypt path.
+     */
+    newapi_subkey_encrypted: {
+      type: String,
+      select: false,
+    },
+    /** P2a: numeric New-API user id, for future admin ops (suspend, top-up). */
+    newapi_user_id: {
+      type: Number,
+    },
   },
   { timestamps: true },
 );

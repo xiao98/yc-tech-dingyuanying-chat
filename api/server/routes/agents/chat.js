@@ -10,6 +10,8 @@ const {
 } = require('~/server/middleware');
 // YCAPI_SYSTEM_LOCK_HOOK — single-persona lock + 50k token cap (P1).
 const dingYuanyingLock = require('~/server/middleware/dingYuanyingLock');
+// NEWAPI_PROVISIONING_HOOK — per-user upstream sub-key on req.upstreamApiKey (P2a).
+const attachSubkey = require('~/server/middleware/attachSubkey');
 const { initializeClient } = require('~/server/services/Endpoints/agents');
 const AgentController = require('~/server/controllers/agents/request');
 const addTitle = require('~/server/services/Endpoints/agents/title');
@@ -31,6 +33,9 @@ const checkAgentResourceAccess = canAccessAgentFromBody({
 // before buildEndpointOption (which reads req.body.promptPrefix into the
 // ephemeral agent's instructions in packages/api/src/agents/load.ts).
 router.use(dingYuanyingLock);
+// NEWAPI_PROVISIONING_HOOK: decrypt user's per-user sub-key onto
+// req.upstreamApiKey before initializeCustom reads it.
+router.use(attachSubkey);
 router.use(moderateText);
 router.use(checkAgentAccess);
 router.use(checkAgentResourceAccess);

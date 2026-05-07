@@ -61,6 +61,10 @@ export interface IUser extends Document {
   tenantId?: string;
   federatedTokens?: OIDCTokens;
   openidTokens?: OIDCTokens;
+  /** P2a: AES-256-GCM-encrypted New-API per-user token key. */
+  newapi_subkey_encrypted?: string;
+  /** P2a: New-API numeric user id (for admin ops). */
+  newapi_user_id?: number;
 }
 
 export interface OIDCTokens {

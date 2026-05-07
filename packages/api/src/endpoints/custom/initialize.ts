@@ -100,7 +100,16 @@ export async function initializeCustom({
     userValues = await db.getUserKeyValues({ userId: req.user?.id ?? '', name: endpoint });
   }
 
-  const apiKey = userProvidesKey ? userValues?.apiKey : CUSTOM_API_KEY;
+  // NEWAPI_PROVISIONING_HOOK consumer (P2a): if the chat-side middleware
+  // (`attachSubkey`) has resolved a per-user upstream key onto the request,
+  // it overrides the env-resolved key. This is the only place the per-user
+  // sub-key enters the outbound HTTP layer (via getOpenAIConfig below).
+  const reqWithSubkey = req as typeof req & { upstreamApiKey?: string };
+  const perUserApiKey =
+    typeof reqWithSubkey.upstreamApiKey === 'string' && reqWithSubkey.upstreamApiKey.length > 0
+      ? reqWithSubkey.upstreamApiKey
+      : null;
+  const apiKey = perUserApiKey ?? (userProvidesKey ? userValues?.apiKey : CUSTOM_API_KEY);
   const baseURL = userProvidesURL ? userValues?.baseURL : CUSTOM_BASE_URL;
 
   if (userProvidesKey && !apiKey) {

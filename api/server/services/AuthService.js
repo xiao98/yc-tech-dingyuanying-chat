@@ -17,6 +17,9 @@ const {
   isEmailDomainAllowed,
   shouldUseSecureCookie,
   resolveAppConfigForUser,
+  // NEWAPI_PROVISIONING_HOOK (P2a) — see packages/api/src/newapi/provisioning.ts
+  buildClientFromEnv,
+  provisionUserAndSubkey,
 } = require('@librechat/api');
 const {
   findUser,
@@ -235,6 +238,26 @@ const registerUser = async (user, additionalData = {}) => {
 
     const newUser = await createUser(newUserData, appConfig.balance, disableTTL, true);
     newUserId = newUser._id;
+
+    // NEWAPI_PROVISIONING_HOOK (P2a, criterion 4.1)
+    // Provision a New-API account + per-user token, encrypt the token key
+    // with AES-256-GCM, and persist on the LibreChat user record. Any
+    // failure here throws and is caught by the outer try/catch which
+    // already calls deleteUserById(newUserId) to roll back the half-baked
+    // LibreChat user. End state on failure: user does not exist in
+    // either system; client gets HTTP 500.
+    if (process.env.NEWAPI_ADMIN_BASE_URL && process.env.NEWAPI_ADMIN_KEY) {
+      const client = buildClientFromEnv();
+      const provisioned = await provisionUserAndSubkey(
+        { librechatUserId: String(newUserId), email },
+        { client },
+      );
+      await updateUser(newUserId, {
+        newapi_subkey_encrypted: provisioned.encryptedSubkey,
+        newapi_user_id: provisioned.newApiUserId,
+      });
+    }
+
     if (emailEnabled && !newUser.emailVerified) {
       await sendVerificationEmail({
         _id: newUserId,

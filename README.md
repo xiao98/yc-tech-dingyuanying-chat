@@ -1,6 +1,41 @@
 # yc-tech-dingyuanying-chat
 
-> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 stage only — no payments, no production deploy.
+> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. No payments yet, no production deploy yet.
+
+## P2a Verification
+
+Full evidence in [`P2a.md`](./P2a.md). Quick summary:
+
+| Item | Value |
+|---|---|
+| Branch | `p2a/newapi-provisioning` (built on P1.5 `ad7e0318e`) |
+| New-API client | `packages/api/src/newapi/client.ts` — verified against [QuantumNous/new-api](https://github.com/QuantumNous/new-api) `controller/user.go` + `controller/token.go` |
+| Provisioning orchestrator | `packages/api/src/newapi/provisioning.ts` — grep `NEWAPI_PROVISIONING_HOOK` |
+| Crypto | `packages/api/src/crypto/subkey.ts` — AES-256-GCM, 12-byte random IV per encrypt, 16-byte authTag, key from `SUBKEY_ENCRYPTION_KEY` env (32 bytes hex) |
+| Registration hook | `api/server/services/AuthService.js#registerUser` — single-shot rollback via existing `deleteUserById(newUserId)` catch path |
+| Mongoose schema fields | `newapi_subkey_encrypted: String (select:false)`, `newapi_user_id: Number` in `packages/data-schemas/src/schema/user.ts` |
+| Chat-side consumer | `api/server/middleware/attachSubkey.js` (mounted in `api/server/routes/agents/chat.js` after `dingYuanyingLock`) → sets `req.upstreamApiKey`; `packages/api/src/endpoints/custom/initialize.ts` reads it, overrides env-resolved `${YCAPI_KEY}` for the outbound HTTP call |
+| Criterion 4.1 happy-path test | `api/server/services/__tests__/newapi-provisioning.spec.js` → **PASS**: real http.createServer mock, 4 captured admin calls in correct order, encrypted blob in DB, `decryptSubkey(blob) === mock.issuedKey` |
+| Criterion 4.1 rollback tests | 2 cases (createUser 500, listTokens empty) → **PASS**: registerUser returns 500, in-memory user store size = 0 |
+| Crypto round-trip + tamper detection | 100 round-trips with unique IVs, plus single-bit tamper → throws, **PASS** |
+| P2a own tests | **9 / 9 PASS** (5 provisioning + 4 attachSubkey middleware) |
+| P1+P1.5 regression | **23 / 23 PASS** (unchanged) |
+| Combined dingYuanyingLock + attachSubkey + provisioning | **32 / 32 PASS** |
+
+Reproduce:
+
+```bash
+# Build the workspace packages so dist/ has the new exports.
+cd packages/data-schemas && npm run build
+cd ../api && npm run build
+cd ../..
+
+# 32/32 pass — no Redis/Mongo needed.
+cd api && npx jest \
+  server/middleware/__tests__/dingYuanyingLock \
+  server/middleware/__tests__/attachSubkey \
+  server/services/__tests__/newapi-provisioning
+```
 
 ## P1 Verification
 

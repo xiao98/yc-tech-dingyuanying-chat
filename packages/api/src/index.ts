@@ -27,6 +27,8 @@ export * from './oauth';
 export * from './mcp/oauth/OAuthReconnectionManager';
 /* Crypto */
 export * from './crypto';
+/* New-API admin provisioning (P2a) */
+export * from './newapi';
 /* Flow */
 export * from './flow/manager';
 /* Middleware */
