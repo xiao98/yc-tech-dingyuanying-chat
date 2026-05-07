@@ -28,7 +28,11 @@ describe('CodeEnvRef', () => {
       file_id: 'file_uvw',
     };
     expect(ref.kind).toBe('user');
-    expect(ref.version).toBeUndefined();
+    /* `version` is statically absent on the user variant of the
+     * discriminated union — the property doesn't exist on the type, so
+     * accessing it would be a compile error. Probe at runtime via an
+     * `unknown` cast to assert the absence at runtime as well. */
+    expect((ref as unknown as Record<string, unknown>).version).toBeUndefined();
   });
 
   it('accepts the canonical shape for kind: agent', () => {

@@ -53,17 +53,13 @@ async function getCodeOutputDownloadStream(fileIdentifier) {
  * @param {ServerRequest} params.req - The request object from Express. It should have a `user` property with an `id` representing the user
  * @param {import('fs').ReadStream | import('stream').Readable} params.stream - The read stream for the file.
  * @param {string} params.filename - The name of the file.
- * @param {string} [params.entity_id] - Optional entity ID for the file.
  * @returns {Promise<{ storage_session_id: string; file_id: string }>}
  *   The codeapi storage location of the uploaded file.
  * @throws {Error} If there's an error during the upload process.
  */
-async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
+async function uploadCodeEnvFile({ req, stream, filename }) {
   try {
     const form = new FormData();
-    if (entity_id.length > 0) {
-      form.append('entity_id', entity_id);
-    }
     appendCodeEnvFile(form, stream, filename);
 
     const baseURL = getCodeBaseURL();
@@ -111,7 +107,6 @@ async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
  * @param {object} params
  * @param {import('express').Request & { user: { id: string } }} params.req - The request object.
  * @param {Array<{ stream: NodeJS.ReadableStream; filename: string }>} params.files - Files to upload.
- * @param {string} [params.entity_id] - Optional entity ID.
  * @param {boolean} [params.read_only] - When true, codeapi tags every file in
  *   the batch as infrastructure (e.g. skill files). The flag is persisted as
  *   MinIO object metadata (`X-Amz-Meta-Read-Only`) and travels with the file
@@ -121,12 +116,9 @@ async function uploadCodeEnvFile({ req, stream, filename, entity_id = '' }) {
  * @returns {Promise<{ storage_session_id: string; files: Array<{ fileId: string; filename: string }> }>}
  * @throws {Error} If the batch upload fails entirely.
  */
-async function batchUploadCodeEnvFiles({ req, files, entity_id = '', read_only = false }) {
+async function batchUploadCodeEnvFiles({ req, files, read_only = false }) {
   try {
     const form = new FormData();
-    if (entity_id.length > 0) {
-      form.append('entity_id', entity_id);
-    }
     if (read_only) {
       form.append('read_only', 'true');
     }

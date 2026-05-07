@@ -777,7 +777,7 @@ const primeFiles = async (options) => {
           storage_session_id: overrideSessionId ?? session_id,
           name: file.filename,
           kind: ref.kind,
-          ...(ref.version != null ? { version: ref.version } : {}),
+          ...(ref.kind === 'skill' ? { version: ref.version } : {}),
         });
       };
 
@@ -817,7 +817,7 @@ const primeFiles = async (options) => {
             id: ref.id,
             storage_session_id: uploaded.storage_session_id,
             file_id: uploaded.file_id,
-            ...(ref.version != null ? { version: ref.version } : {}),
+            ...(ref.kind === 'skill' ? { version: ref.version } : {}),
           };
 
           const updatedMetadata = {

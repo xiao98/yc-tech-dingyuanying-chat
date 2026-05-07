@@ -36,12 +36,12 @@ export type CodeEnvKind = (typeof CODE_ENV_KINDS)[number];
  * a designed property of the kind switch, not an emergent side
  * effect. See codeapi #1455 / agents #148 / LC #12960.
  *
- * `version` carries the resource version when relevant. Required for
- * `kind: 'skill'`; absent for other kinds. Codeapi's validator
- * enforces this.
+ * `version` is statically required when `kind === 'skill'` and
+ * statically forbidden otherwise via the discriminated union below —
+ * the constraint is enforced at compile time, not just by codeapi's
+ * runtime validator.
  */
-export interface CodeEnvRef {
-  kind: CodeEnvKind;
+interface CodeEnvRefBase {
   /** Resource identity. Semantics depend on `kind`:
    *  - `skill`: skill `_id` (sessionKey-meaningful, cross-user shared).
    *  - `agent`: agent id (sessionKey-meaningful, cross-user shared).
@@ -51,6 +51,9 @@ export interface CodeEnvRef {
   id: string;
   storage_session_id: string;
   file_id: string;
-  /** Required when `kind === 'skill'`; absent otherwise. */
-  version?: number;
 }
+
+export type CodeEnvRef =
+  | (CodeEnvRefBase & { kind: 'skill'; version: number })
+  | (CodeEnvRefBase & { kind: 'agent' })
+  | (CodeEnvRefBase & { kind: 'user' });

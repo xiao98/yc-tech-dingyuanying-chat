@@ -398,7 +398,7 @@ export async function primeInvokedSkills(
             name: `${skillName}/${file.relativePath}`,
             storage_session_id: ref!.storage_session_id,
             kind: ref!.kind,
-            ...(ref!.version != null ? { version: ref!.version } : {}),
+            ...(ref!.kind === 'skill' ? { version: ref!.version } : {}),
           }));
           if (cachedFiles.length > 0) {
             logger.debug(
