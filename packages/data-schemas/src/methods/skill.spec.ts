@@ -1488,6 +1488,7 @@ describe('SkillFile methods', () => {
             id: 'x',
             storage_session_id: 'sid',
             file_id: 'fid',
+            version: 1,
           },
         },
       ]);
