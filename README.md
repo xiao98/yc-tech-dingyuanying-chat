@@ -14,8 +14,9 @@ Full evidence in [`P1.md`](./P1.md). Quick summary:
 | System-override middleware | `api/server/middleware/dingYuanyingLock.js` — grep `YCAPI_SYSTEM_LOCK_HOOK` |
 | Wired into | `api/server/routes/agents/chat.js` (first `router.use(...)` after the imports) |
 | Token cap | 50000 (`MAX_CONTEXT_TOKENS`); over-cap returns HTTP 400 `{error:"context too long",tokens,limit}` |
-| P1 own tests | **21 / 21 PASS** (18 unit + 3 supertest integration) |
-| P1 own statement coverage | **94.64%** |
+| P1 own tests | **23 / 23 PASS** (18 unit + 3 supertest integration + 2 outbound HTTP black-box, P1.5) |
+| P1 own statement coverage | **94.64%** (P1 baseline; P1.5 outbound spec exercises the same module so coverage holds) |
+| Criterion 4.4 outbound HTTP black-box (P1.5) | mock-captured upstream `messages[0].role==="system"`, `SHA256(messages[0].content.trim()) === 1a185d6f…61818a6`, client jailbreak string absent — all 3 PASS |
 | `npm install` | EXIT 0 |
 | `npm run lint` (upstream script) | EXIT 2 — upstream Win-shell glob issue (no files actually linted); see [`P1.md`](./P1.md) |
 | `npx eslint .` (real full-repo) | EXIT 1 — 310 errors / 95 warnings, all upstream baseline |
@@ -26,9 +27,8 @@ Full evidence in [`P1.md`](./P1.md). Quick summary:
 Reproduce:
 
 ```bash
-# coverage + 21/21 pass (no infra needed)
-cd api && npx jest server/middleware/__tests__/dingYuanyingLock \
-            --coverage --collectCoverageFrom='server/middleware/dingYuanyingLock.js'
+# 23/23 pass (no infra needed): unit + integration + outbound HTTP black-box (P1.5)
+cd api && npx jest server/middleware/__tests__/dingYuanyingLock
 
 # SHA match against ~/.claude/skills/ding-yuanying/SKILL.md
 node -e "const y=require('js-yaml');const fs=require('fs');const c=require('crypto');const cfg=y.load(fs.readFileSync('librechat.yaml','utf8'));const skill=fs.readFileSync(require('os').homedir()+'/.claude/skills/ding-yuanying/SKILL.md','utf8').replace(/\r\n/g,'\n').trim();const pp=cfg.modelSpecs.list[0].preset.promptPrefix.trim();console.log('MATCH',c.createHash('sha256').update(skill).digest('hex')===c.createHash('sha256').update(pp).digest('hex'));"
