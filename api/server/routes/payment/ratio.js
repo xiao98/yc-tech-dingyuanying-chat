@@ -15,8 +15,6 @@
 //           cny: 0.14
 //         alipay:
 //           cny: 1
-//         wxpay:
-//           cny: 1
 //
 // If no `topup` block exists we fall back to `process.env.PAYMENT_RATIO`
 // (single global) and finally 1. Tests override via env so they don't

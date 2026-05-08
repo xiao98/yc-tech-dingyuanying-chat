@@ -1,6 +1,8 @@
 # P3b Verification — payments + balance gate
 
-> P3b 是把 P3a 留下的三家支付 stub（`alipay.js` / `wxpay.js` / `stripe.js` 都返 501）替换成**真签名验证 + 真余额扣减 + 真重放防护**的实现版。Master agent 校验时直接读这里。
+> **2026-05-08 更新**：WeChat Pay 通道在 `chore/drop-wxpay` 分支移除（中国大陆营业执照门槛过高，时间机会成本不划算）。下文涉及 `wxpay.js` / `wxpay-simulator.js` / `WXPAY_*` 环境变量 / case C / case D-wxpay 的内容均已废弃，仅作历史记录。当前实际启用通道：**Stripe + Alipay 两家**。
+>
+> P3b 是把 P3a 留下的支付 stub（`alipay.js` / `stripe.js`）替换成**真签名验证 + 真余额扣减 + 真重放防护**的实现版。Master agent 校验时直接读这里。
 
 ## TL;DR
 

@@ -17,8 +17,7 @@
 //
 // Amount: `params.total_amount` is in yuan (元) as a decimal string.
 //   We convert to cents (×100, rounded) before persisting, matching the
-//   stripe (cents) and wxpay (cents) representations and giving the
-//   credit helper a uniform unit.
+//   stripe (cents) representation and giving the credit helper a uniform unit.
 
 'use strict';
 

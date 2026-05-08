@@ -1,7 +1,7 @@
 // PAYMENT_CREDIT_HOOK — YC TECH 丁元英 Chat (P3b).
 //
 // Atomic balance-credit primitive shared by the three webhook handlers
-// (alipay / wxpay / stripe). Consumers pass a verified payment event;
+// (alipay / stripe). Consumers pass a verified payment event;
 // this module persists the audit trail in the `Payment` collection and
 // increments `Balance.tokenCredits` for the user — both in a single
 // mongoose transaction so a partial-write cannot leave money credited
@@ -23,7 +23,7 @@ interface PaymentDoc {
   user_id: unknown;
   amount: number;
   currency: string;
-  channel: 'alipay' | 'wxpay' | 'stripe';
+  channel: 'alipay' | 'stripe';
   channel_ref: string;
   status: string;
   paid_at?: Date;
@@ -39,7 +39,7 @@ export interface CreditInput {
   userId: string;
   amount: number;
   currency: string;
-  channel: 'alipay' | 'wxpay' | 'stripe';
+  channel: 'alipay' | 'stripe';
   channelRef: string;
   rawPayload: unknown;
   ratio: number;
@@ -137,7 +137,7 @@ interface CreditCtx {
   userId: string;
   amount: number;
   currency: string;
-  channel: 'alipay' | 'wxpay' | 'stripe';
+  channel: 'alipay' | 'stripe';
   channelRef: string;
   rawPayload: unknown;
   creditDelta: number;

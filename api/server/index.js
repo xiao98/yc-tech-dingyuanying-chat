@@ -109,11 +109,10 @@ const startServer = async () => {
   /* Middleware */
   app.use(noIndex);
   /* PAYMENT_RAW_BODY_HOOK (P3b) — stash raw bytes on req for signature
-   * verification. Stripe and WeChat Pay v3 webhooks both compute
-   * HMAC/RSA over the request body bytes, which are no longer available
-   * after `express.json` parses the JSON. The verify callback captures
-   * them with no behavioral change for existing routes (they use
-   * req.body, untouched). */
+   * verification. Stripe webhooks compute HMAC over the request body
+   * bytes, which are no longer available after `express.json` parses
+   * the JSON. The verify callback captures them with no behavioral
+   * change for existing routes (they use req.body, untouched). */
   const captureRawBody = (req, _res, buf) => {
     if (buf && buf.length) {
       req.rawBody = buf;
@@ -215,7 +214,6 @@ const startServer = async () => {
    * channel_ref idempotency + Payment doc upsert) land in P3b.
    * Mounted before `apiNotFound` so 501 is returned, not 404. */
   app.use('/api/payment/alipay', routes.paymentAlipay);
-  app.use('/api/payment/wxpay', routes.paymentWxpay);
   app.use('/api/payment/stripe', routes.paymentStripe);
 
   /** 404 for unmatched API routes */

@@ -1,6 +1,6 @@
 # yc-tech-dingyuanying-chat
 
-> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. P2b = system-lock sidecar reverse proxy. P3a = deploy infra + payment route scaffolding. **P3b = three-channel webhook handlers (stripe / alipay / wxpay) + balance gate + replay protection.**
+> Fork of [LibreChat](https://github.com/danny-avila/LibreChat) at `1bc2692a1`, hard-locked to a single "丁元英" persona. P1 = persona lock. P2a = per-user New-API admin provisioning + encrypted sub-key. P2b = system-lock sidecar reverse proxy. P3a = deploy infra + payment route scaffolding. P3b = two-channel webhook handlers (stripe / alipay) + balance gate + replay protection. **WeChat Pay native channel deprecated (drop-wxpay branch); the merchant-license requirement was the bottleneck.**
 
 ## P3b Verification
 
@@ -8,12 +8,12 @@ Branch: `p3b/payments` (built on P3a `ae8ebee2e`). Full evidence in [`P3b.md`](.
 
 | Item | Value |
 |---|---|
-| Webhook handlers | `api/server/routes/payment/{stripe,alipay,wxpay}.js` — implementations replace P3a stubs |
-| Signature primitives | `api/server/routes/payment/signatures.js` — pure Node `crypto` (HMAC-SHA256 / RSA-SHA256 / AEAD-AES-256-GCM), 0 SDK deps |
+| Webhook handlers | `api/server/routes/payment/{stripe,alipay}.js` — implementations replace P3a stubs |
+| Signature primitives | `api/server/routes/payment/signatures.js` — pure Node `crypto` (HMAC-SHA256 / RSA-SHA256), 0 SDK deps |
 | Atomic credit helper | `packages/api/src/payments/credit.ts` — mongoose session/transaction with E11000 → idempotent fallback |
 | Balance gate (criterion 4.3) | `api/server/middleware/balanceGate.js` mounted at `/api/agents/chat` before `attachSubkey`; returns `402 {"error":"insufficient balance",balance:0}` when `Balance.tokenCredits ≤ 0` |
-| Mock simulators | `e2e/mocks/{stripe,alipay,wxpay}-simulator.js` — generate signed payloads with the same primitives the server verifies (no SDK on either side) |
-| Criterion 4.2 e2e | **7 / 7 PASS** (3 paid + 3 replay-idempotent + 1 bad-signature reject) — `api/server/routes/payment/__tests__/payments.e2e.spec.js` |
+| Mock simulators | `e2e/mocks/{stripe,alipay}-simulator.js` — generate signed payloads with the same primitives the server verifies (no SDK on either side) |
+| Criterion 4.2 e2e | **5 / 5 PASS** (2 paid + 2 replay-idempotent + 1 bad-signature reject) — `api/server/routes/payment/__tests__/payments.e2e.spec.js` |
 | Criterion 4.3 e2e | **3 / 3 PASS** (zero-balance 402 + missing-row 402 + after-topup 200) — `api/server/routes/__tests__/balance-gate.e2e.spec.js` |
 | Regression (P1+P1.5+P2a) | **32 / 32 PASS** unchanged |
 | Regression (sidecar) | **8 / 8 PASS** unchanged |
@@ -49,8 +49,8 @@ internet ──443──▶│ nginx           (TLS terminator + LE auto-renew) 
                   ┌──────────────────────────────────────────────┐
                   │ librechat-api    (Express monolith)          │
                   │  ├── /api/...           normal LibreChat     │
-                  │  └── /api/payment/{alipay,wxpay,stripe}      │
-                  │       └── 501 stub today, P3b webhook handler│
+                  │  └── /api/payment/{alipay,stripe}            │
+                  │       └── webhook handlers (P3b)             │
                   └──────┬─────────────────────────┬─────────────┘
                          │                         │
                          │ baseURL=...             │
@@ -92,7 +92,6 @@ bash deploy.sh
 |---|---|
 | Upstream YCAPI | `YCAPI_BASE_URL` `YCAPI_ADMIN_KEY` |
 | New-API admin (P2a) | `NEWAPI_ADMIN_BASE_URL` `NEWAPI_ADMIN_KEY` |
-| WeChat Pay APIv3 | `WXPAY_MCH_ID` `WXPAY_API_V3_KEY` `WXPAY_CERT_PATH` |
 | Alipay open-platform | `ALIPAY_APP_ID` `ALIPAY_PRIVATE_KEY_PATH` `ALIPAY_PUBLIC_KEY_PATH` |
 | Stripe | `STRIPE_SECRET_KEY` `STRIPE_WEBHOOK_SECRET` |
 | Database / auth | `MONGO_URI` `JWT_SECRET` |
@@ -112,7 +111,7 @@ env -i bash deploy.sh
 
 | Item | P3a status | Deferred to P3b |
 |---|---|---|
-| `api/server/routes/payment/{alipay,wxpay,stripe}.js` | files exist, mounted at `/api/payment/*`, return **501** | actual webhook signature verification + Payment doc upsert |
+| `api/server/routes/payment/{alipay,stripe}.js` | files exist, mounted at `/api/payment/*`, return **501** | actual webhook signature verification + Payment doc upsert |
 | `packages/data-schemas/src/schema/payment.ts` | shipped — `channel_ref` UNIQUE constraint enforces criterion 4.2 replay protection at the DB level | — |
 | `Dockerfile` (LibreChat backend) | unchanged, used as-is by `librechat-api` build | — |
 | `docker-compose.yml` | 6 services + 2 volumes + 1 network — `docker compose config` exits 0 | — |

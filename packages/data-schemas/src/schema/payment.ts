@@ -34,7 +34,7 @@ const paymentSchema: Schema<IPaymentDocument> = new Schema(
     },
     channel: {
       type: String,
-      enum: ['alipay', 'wxpay', 'stripe'],
+      enum: ['alipay', 'stripe'],
       required: true,
       index: true,
     },
