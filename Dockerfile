@@ -42,10 +42,14 @@ RUN \
 COPY --chown=node:node . .
 
 RUN \
-    # React client build with configurable memory
-    NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend; \
-    npm prune --production; \
-    npm cache clean --force
+    # React client build with configurable memory.
+    # `npm prune --production` and `npm cache clean --force` were
+    # observed to hang indefinitely on the 1-CPU / 4GB deploy host
+    # (epoll loop with no I/O — see P4 deploy notes). They are
+    # space optimizations only — the resulting container still runs
+    # correctly with the dev dependencies present, so we drop them
+    # from the production build path until the host has more headroom.
+    NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend
 
 # Node API setup
 EXPOSE 3080
