@@ -21,13 +21,16 @@
 
 'use strict';
 
+const fs = require('node:fs');
+const crypto = require('node:crypto');
 const express = require('express');
 const { logger } = require('@librechat/data-schemas');
 const { creditUserBalance } = require('@librechat/api');
 const mongoose = require('mongoose');
-const { verifyAlipayNotify } = require('./signatures');
+const { verifyAlipayNotify, canonicalAlipayString } = require('./signatures');
 const { resolveTopupRatio } = require('./ratio');
 const { resolveUserId } = require('./userlookup');
+const requireJwtAuth = require('../../middleware/requireJwtAuth');
 
 const router = express.Router();
 
@@ -106,4 +109,99 @@ function extractUserFromOutTradeNo(outTradeNo) {
   return m ? m[1] : null;
 }
 
+// PAYMENT_ALIPAY_INITIATION_HOOK — YC TECH 丁元英 Chat (P4).
+//
+// Authenticated POST endpoint that builds a signed Alipay PC pay
+// gateway URL (alipay.trade.page.pay). The browser is then redirected
+// to this URL where the user completes the trade. Upon success the
+// webhook (PAYMENT_ALIPAY_HOOK above) credits the balance.
+//
+// Body: { amount: "<decimal yuan>" }, e.g. "9.99".
+//
+// out_trade_no encodes the LibreChat user id so the webhook's
+// resolveUserId() helper falls back to it when buyer-side metadata
+// is not enough. Format: `u_<userid>_<timestamp>` — matches the
+// regex in extractUserFromOutTradeNo above.
+
+function buildAlipayPageUrl({
+  appId,
+  privateKeyPem,
+  outTradeNo,
+  totalAmount,
+  subject,
+  notifyUrl,
+  returnUrl,
+  gateway,
+}) {
+  const bizContent = JSON.stringify({
+    out_trade_no: outTradeNo,
+    total_amount: totalAmount,
+    subject,
+    product_code: 'FAST_INSTANT_TRADE_PAY',
+  });
+  const params = {
+    app_id: appId,
+    method: 'alipay.trade.page.pay',
+    format: 'JSON',
+    charset: 'utf-8',
+    sign_type: 'RSA2',
+    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    version: '1.0',
+    notify_url: notifyUrl,
+    return_url: returnUrl,
+    biz_content: bizContent,
+  };
+  const canonical = canonicalAlipayString(params);
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(canonical, 'utf8');
+  const sign = signer.sign(privateKeyPem, 'base64');
+  const finalParams = { ...params, sign };
+  const qs = Object.entries(finalParams)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  return `${gateway}?${qs}`;
+}
+
+router.post('/create-trade', requireJwtAuth, async (req, res) => {
+  try {
+    const { amount } = req.body || {};
+    if (!amount || !/^\d+(\.\d{1,2})?$/.test(String(amount))) {
+      return res.status(400).json({ error: 'amount required (decimal yuan)' });
+    }
+    const yuan = parseFloat(String(amount));
+    if (!Number.isFinite(yuan) || yuan <= 0) {
+      return res.status(400).json({ error: 'invalid amount' });
+    }
+    if (!process.env.ALIPAY_APP_ID || !process.env.ALIPAY_PRIVATE_KEY_PATH) {
+      return res.status(503).json({ error: 'alipay not configured' });
+    }
+    let privateKeyPem;
+    try {
+      privateKeyPem = fs.readFileSync(process.env.ALIPAY_PRIVATE_KEY_PATH, 'utf8');
+    } catch (err) {
+      logger.error(`[alipay create-trade] private key read failed: ${err.message}`);
+      return res.status(503).json({ error: 'alipay private key unavailable' });
+    }
+
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    const outTradeNo = `u_${userId}_${Date.now()}`;
+    const domain = process.env.DOMAIN || 'dyy.youchun.tech';
+    const url = buildAlipayPageUrl({
+      appId: process.env.ALIPAY_APP_ID,
+      privateKeyPem,
+      outTradeNo,
+      totalAmount: yuan.toFixed(2),
+      subject: '丁元英 Chat 充值',
+      notifyUrl: `https://${domain}/api/payment/alipay/webhook`,
+      returnUrl: `https://${domain}/?alipay_trade=${outTradeNo}`,
+      gateway: process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do',
+    });
+    return res.status(200).json({ url, outTradeNo });
+  } catch (err) {
+    logger.error(`[alipay create-trade] failed: ${err.message}`);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
+module.exports.buildAlipayPageUrl = buildAlipayPageUrl;

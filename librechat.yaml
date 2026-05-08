@@ -21,6 +21,37 @@ balance:
   startBalance: 0
   autoRefillEnabled: false
 
+permissions:
+  USER:
+    PROMPTS:
+      USE: false
+      CREATE: false
+    AGENTS:
+      USE: false
+      CREATE: false
+    BOOKMARKS:
+      USE: true
+    MEMORIES:
+      USE: true
+    MULTI_CONVO:
+      USE: false
+    TEMPORARY_CHAT:
+      USE: false
+    RUN_CODE:
+      USE: false
+    WEB_SEARCH:
+      USE: false
+    FILE_SEARCH:
+      USE: true
+    PEOPLE_PICKER:
+      VIEW_USERS: false
+      VIEW_GROUPS: false
+      VIEW_ROLES: false
+    MARKETPLACE:
+      USE: false
+    FILE_CITATIONS:
+      USE: false
+
 modelSpecs:
   enforce: true
   prioritize: true
