@@ -1325,6 +1325,13 @@ export const configSchema = z.object({
     })
     .optional(),
   interface: interfaceSchema,
+  // YC TECH 丁元英 Chat (P4): role-based permission map. Accepted as
+  // an opaque passthrough — this fork's runtime does not enforce
+  // these fields on the backend; UI hiding is driven by `interface`
+  // flags above. We keep the block in librechat.yaml so admins can
+  // declare intent and so a USER.PROMPTS.USE === false invariant is
+  // machine-checkable from the YAML itself (P4 criterion E2).
+  permissions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   turnstile: turnstileSchema.optional(),
   fileStrategy: fileStorageSchema.default(FileSources.local),
   fileStrategies: fileStrategiesSchema,
