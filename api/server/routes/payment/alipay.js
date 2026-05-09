@@ -151,9 +151,17 @@ function buildAlipayPageUrl({
     return_url: returnUrl,
     biz_content: bizContent,
   };
-  const canonical = canonicalAlipayString(params);
+  // Outbound (page.pay) signing rule differs from inbound notify verification:
+  // sign_type MUST participate in the canonical string for outbound API calls.
+  // canonicalAlipayString() excludes sign_type because that's the inbound rule.
+  // Build our own here: drop only `sign` itself and empty/null values, keep sign_type.
+  const outboundCanonical = Object.keys(params)
+    .filter((k) => k !== 'sign' && params[k] !== '' && params[k] != null)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&');
   const signer = crypto.createSign('RSA-SHA256');
-  signer.update(canonical, 'utf8');
+  signer.update(outboundCanonical, 'utf8');
   const sign = signer.sign(privateKeyPem, 'base64');
   const finalParams = { ...params, sign };
   const qs = Object.entries(finalParams)

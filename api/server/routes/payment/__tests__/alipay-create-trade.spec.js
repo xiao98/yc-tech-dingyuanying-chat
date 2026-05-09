@@ -24,7 +24,17 @@ const crypto = require('node:crypto');
 const express = require('express');
 const request = require('supertest');
 
-const { canonicalAlipayString } = require('../signatures');
+// Outbound (page.pay) canonical: includes sign_type, excludes only sign + empties.
+// This differs from inbound notify verification (canonicalAlipayString in signatures.js)
+// which excludes sign_type. Verifying the outbound sign with the inbound rule
+// would be a false-pass (regression caught 2026-05-09 in production).
+function canonicalOutbound(params) {
+  return Object.keys(params)
+    .filter((k) => k !== 'sign' && params[k] !== '' && params[k] != null)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&');
+}
 
 const TEST_USER_ID = '6650abcdef0123456789beef';
 let tmpKeyPath;
@@ -125,7 +135,8 @@ describe('Alipay create-trade endpoint (P4 / criterion D1)', () => {
     const u = new URL(res.body.url);
     const params = parseQuery(u.search.slice(1));
 
-    const canonical = canonicalAlipayString(params);
+    const canonical = canonicalOutbound(params);
+    expect(canonical).toContain('sign_type=RSA2');
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(canonical, 'utf8');
     const ok = verifier.verify(publicKeyPem, Buffer.from(params.sign, 'base64'));
