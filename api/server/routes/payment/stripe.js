@@ -134,19 +134,33 @@ function pickAmount(eventType, obj) {
 
 router.post('/create-checkout-session', requireJwtAuth, async (req, res) => {
   try {
-    const { priceId } = req.body || {};
-    if (!priceId || typeof priceId !== 'string') {
-      return res.status(400).json({ error: 'priceId required' });
-    }
+    const { priceId, amount } = req.body || {};
     if (!process.env.STRIPE_SECRET_KEY) {
       return res.status(503).json({ error: 'stripe not configured' });
     }
     const userId = req.user._id ? req.user._id.toString() : req.user.id;
     const domain = process.env.DOMAIN || 'dyy.youchun.tech';
     const params = new URLSearchParams();
-    params.append('mode', 'subscription');
-    params.append('line_items[0][price]', priceId);
-    params.append('line_items[0][quantity]', '1');
+
+    if (priceId && typeof priceId === 'string') {
+      params.append('mode', 'subscription');
+      params.append('line_items[0][price]', priceId);
+      params.append('line_items[0][quantity]', '1');
+    } else if (amount != null && /^\d+(\.\d{1,2})?$/.test(String(amount))) {
+      const usd = parseFloat(String(amount));
+      if (!Number.isFinite(usd) || usd <= 0) {
+        return res.status(400).json({ error: 'invalid amount' });
+      }
+      const cents = Math.round(usd * 100);
+      params.append('mode', 'payment');
+      params.append('line_items[0][price_data][currency]', 'usd');
+      params.append('line_items[0][price_data][unit_amount]', String(cents));
+      params.append('line_items[0][price_data][product_data][name]', '丁元英 Chat 充值');
+      params.append('line_items[0][quantity]', '1');
+    } else {
+      return res.status(400).json({ error: 'priceId or amount (decimal USD) required' });
+    }
+
     params.append('success_url', `https://${domain}/?stripe_success={CHECKOUT_SESSION_ID}`);
     params.append('cancel_url', `https://${domain}/?stripe_cancel=1`);
     params.append('client_reference_id', userId);
