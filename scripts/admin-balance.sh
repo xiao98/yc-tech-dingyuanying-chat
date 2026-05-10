@@ -11,6 +11,8 @@
 #   admin-balance.sh set   <email> <credits>        # absolute set
 #   admin-balance.sh add   <email> <credits>        # delta (negative ok)
 #   admin-balance.sh topup <email> <rmb>            # rmb→credits via ratio
+#   admin-balance.sh convos <email>                 # list user's conversations
+#   admin-balance.sh messages <conversationId>      # show all messages in a convo
 #
 # 1 RMB ≈ 28000 credits (after 5x markup, see librechat.yaml topup.alipay.cny)
 
@@ -80,6 +82,36 @@ if (!u) { print('not found'); quit(1); }
 const r = db.balances.findOneAndUpdate({user: u._id}, {\$inc: {tokenCredits: NumberInt($credits)}}, {upsert: true, returnDocument: 'after'});
 const cur = (r && r.tokenCredits) || (db.balances.findOne({user: u._id}) || {}).tokenCredits;
 print(JSON.stringify({email: '$2', rmb: $rmb, addedCredits: $credits, newBalance: cur}));
+JSEOF
+    ;;
+  convos)
+    [[ -z "${2:-}" ]] && usage
+    mongo_pipe <<JSEOF
+const u = db.users.findOne({email: '$2'}, {_id:1});
+if (!u) { print('not found'); quit(1); }
+const convos = db.conversations.find({user: u._id.toString()}, {conversationId:1, title:1, model:1, createdAt:1, updatedAt:1, _id:0}).sort({updatedAt:-1}).toArray();
+print('email: $2  count: ' + convos.length);
+convos.forEach(function(c) {
+  print(c.conversationId + '\t' + (c.updatedAt ? c.updatedAt.toISOString() : '?') + '\t' + (c.model || '-') + '\t' + (c.title || '(no title)'));
+});
+JSEOF
+    ;;
+  messages)
+    [[ -z "${2:-}" ]] && usage
+    mongo_pipe <<JSEOF
+const c = db.conversations.findOne({conversationId: '$2'}, {user:1, title:1});
+if (!c) { print('not found'); quit(1); }
+print('---');
+print('convo: $2');
+print('owner: ' + c.user);
+print('title: ' + c.title);
+print('---');
+const msgs = db.messages.find({conversationId: '$2'}, {sender:1, text:1, isCreatedByUser:1, createdAt:1, _id:0}).sort({createdAt:1}).toArray();
+msgs.forEach(function(m) {
+  const role = m.isCreatedByUser ? 'USER' : (m.sender || 'BOT');
+  const txt = (m.text || '').replace(/\n/g, ' ').slice(0, 200);
+  print('[' + role + '] ' + (m.createdAt ? m.createdAt.toISOString() : '?') + '  ' + txt);
+});
 JSEOF
     ;;
   *)
