@@ -248,7 +248,7 @@ describe('NEWAPI_PROVISIONING_HOOK (P2a, criterion 4.1)', () => {
     const createUserCall = mock.captured.find((c) => c.method === 'POST' && c.url === '/api/user/');
     expect(createUserCall.body.username).toMatch(/^lc/);
     expect(createUserCall.body.password.length).toBeGreaterThan(16);
-    expect(createUserCall.body.display_name).toBe('alice@example.com');
+    expect(createUserCall.body.display_name).toBe('yc-alice');
     expect(createUserCall.headers.authorization).toBe('mock-admin-key');
 
     const tokenCall = mock.captured.find((c) => c.method === 'POST' && c.url === '/api/token/');

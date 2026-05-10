@@ -94,7 +94,9 @@ export async function provisionUserAndSubkey(
   await client.createUser({
     username,
     password,
-    display_name: input.email,
+    // New-API DisplayName max is ~20 chars (validated server-side via 'max' tag).
+    // Use email local-part only and truncate to 17 so 'yc-' prefix fits.
+    display_name: `yc-${input.email.split('@')[0].slice(0, 17)}`,
   });
 
   const session = await client.loginAsUser({ username, password });
