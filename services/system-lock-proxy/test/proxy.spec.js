@@ -179,7 +179,12 @@ describe('system-lock-proxy', () => {
       expect(rec.rawBody.toString('utf8')).not.toMatch(/evil/);
       const parsed = JSON.parse(rec.rawBody.toString('utf8'));
       expect(parsed.messages[0].role).toBe('system');
-      expect(sha256(parsed.messages[0].content.trim())).toBe(FIXTURE_TRIM_SHA256);
+      const sysContent = parsed.messages[0].content;
+      const sysText = Array.isArray(sysContent) ? sysContent[0].text : sysContent;
+      expect(sha256(sysText.trim())).toBe(FIXTURE_TRIM_SHA256);
+      if (Array.isArray(sysContent)) {
+        expect(sysContent[0].cache_control).toEqual({ type: 'ephemeral' });
+      }
       expect(parsed.messages[1]).toEqual({ role: 'user', content: 'hi' });
     } finally {
       await proxy.close();
@@ -221,7 +226,12 @@ describe('system-lock-proxy', () => {
       const systemRoles = parsed.messages.filter((m) => m.role === 'system');
       expect(systemRoles.length).toBe(1);
       expect(parsed.messages[0].role).toBe('system');
-      expect(sha256(parsed.messages[0].content.trim())).toBe(FIXTURE_TRIM_SHA256);
+      const sysContent = parsed.messages[0].content;
+      const sysText = Array.isArray(sysContent) ? sysContent[0].text : sysContent;
+      expect(sha256(sysText.trim())).toBe(FIXTURE_TRIM_SHA256);
+      if (Array.isArray(sysContent)) {
+        expect(sysContent[0].cache_control).toEqual({ type: 'ephemeral' });
+      }
       expect(parsed.messages.slice(1)).toEqual([
         { role: 'user', content: 'q1' },
         { role: 'assistant', content: 'a1' },
@@ -253,7 +263,12 @@ describe('system-lock-proxy', () => {
       const parsed = JSON.parse(upstream.records[0].rawBody.toString('utf8'));
       expect(parsed.messages.length).toBe(2);
       expect(parsed.messages[0].role).toBe('system');
-      expect(sha256(parsed.messages[0].content.trim())).toBe(FIXTURE_TRIM_SHA256);
+      const sysContent = parsed.messages[0].content;
+      const sysText = Array.isArray(sysContent) ? sysContent[0].text : sysContent;
+      expect(sha256(sysText.trim())).toBe(FIXTURE_TRIM_SHA256);
+      if (Array.isArray(sysContent)) {
+        expect(sysContent[0].cache_control).toEqual({ type: 'ephemeral' });
+      }
       expect(parsed.messages[1]).toEqual({ role: 'user', content: 'hello' });
     } finally {
       await proxy.close();

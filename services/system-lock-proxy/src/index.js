@@ -46,7 +46,16 @@ function rewriteMessages(parsed, lockedSystem) {
     (m) => !(m && typeof m === 'object' && m.role === 'system')
   );
   parsed.messages = [
-    { role: 'system', content: lockedSystem },
+    {
+      role: 'system',
+      content: [
+        {
+          type: 'text',
+          text: lockedSystem,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+    },
     ...nonSystem,
   ];
   return parsed;
