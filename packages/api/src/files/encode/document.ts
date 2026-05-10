@@ -1,5 +1,6 @@
 import { Providers } from '@librechat/agents';
 import {
+  EModelEndpoint,
   isOpenAILikeProvider,
   isBedrockDocumentType,
   bedrockDocumentFormats,
@@ -34,7 +35,12 @@ function formatDocumentBlock(
   filename: string | undefined,
   useResponsesApi: boolean | undefined,
 ): DocumentBlock | null {
-  if (provider === Providers.ANTHROPIC) {
+  // YC TECH P5: for `custom` endpoints (e.g. ycapi → Claude via the
+  // system-lock-proxy sidecar), emit the Anthropic document block. The
+  // sidecar detects this shape and translates the request to Anthropic
+  // `/v1/messages` so the upstream Claude actually reads the file —
+  // OpenAI-compat `/v1/chat/completions` silently drops document blocks.
+  if (provider === Providers.ANTHROPIC || (provider as string) === EModelEndpoint.custom) {
     const document: AnthropicDocumentBlock = {
       type: 'document',
       source: {

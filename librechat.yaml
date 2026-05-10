@@ -3,6 +3,29 @@
 version: 1.2.8
 cache: true
 
+# P5: explicitly allow PDF / Word / plain-text / markdown uploads in
+# addition to the default image set. The system-lock-proxy sidecar
+# detects document blocks in outbound chat-completion bodies and
+# translates the request to Anthropic `/v1/messages` so the upstream
+# Claude model actually reads the file (the OpenAI-compat
+# `/v1/chat/completions` endpoint silently drops document blocks).
+fileConfig:
+  endpoints:
+    ycapi:
+      fileLimit: 8
+      fileSizeLimit: 32
+      totalSizeLimit: 64
+      supportedMimeTypes:
+        - "image/jpeg"
+        - "image/png"
+        - "image/gif"
+        - "image/webp"
+        - "application/pdf"
+        - "application/msword"
+        - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        - "text/plain"
+        - "text/markdown"
+
 interface:
   parameters: false
   presets: false

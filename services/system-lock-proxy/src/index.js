@@ -1,8 +1,16 @@
 // SYSTEM_LOCK_PROXY_HOOK
-// YC TECH 丁元英 Chat — P2b sidecar reverse proxy.
+// YC TECH 丁元英 Chat — P2b sidecar reverse proxy + P5 protocol translator.
 //
-// Enforces messages[0] = {role:'system', content:<SKILL.md>} on every
-// OpenAI-compatible chat-completion request before forwarding upstream.
+// 1. P2b: enforce messages[0] = {role:'system', content:<SKILL.md>} on every
+//    OpenAI-compatible chat-completion request before forwarding upstream.
+// 2. Path rewrite: LibreChat sends to `/chat/completions`; YCAPI's
+//    OpenAI-compat endpoint lives at `/v1/chat/completions`. We rewrite
+//    so callers can use either form.
+// 3. P5: when an OpenAI-compat request carries a `{type:'document', ...}`
+//    block in any user message, translate to Anthropic `/v1/messages`
+//    shape, forward, and translate the response (incl. SSE) back to
+//    OpenAI shape. Plain-text/image requests stay on the original path
+//    untouched.
 // All other paths are byte-passthrough. Streaming responses are piped, not
 // buffered, so SSE chunks reach the client in realtime.
 
@@ -13,9 +21,20 @@ const http = require('node:http');
 const https = require('node:https');
 const { URL } = require('node:url');
 
+const {
+  hasDocumentBlock,
+  extractSystemBlocks,
+  buildAnthropicBody,
+  translateAnthropicResponse,
+  createSseTranslator,
+} = require('./translate');
+
 const DEFAULT_SKILL_PATH = '/etc/system-lock-proxy/skill.md';
 const DEFAULT_LISTEN_PORT = 8080;
 const CHAT_PATH = '/v1/chat/completions';
+const CHAT_PATH_NO_V1 = '/chat/completions';
+const ANTHROPIC_MESSAGES_PATH = '/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
 
 function loadSkillOrDie(skillPath) {
   let raw;
@@ -92,6 +111,50 @@ function sanitizeForwardHeaders(reqHeaders, newBodyByteLength) {
   return out;
 }
 
+/**
+ * Rewrite an OpenAI-compat header set into Anthropic native form: replace
+ * `Authorization: Bearer <token>` with `x-api-key: <token>` and add
+ * `anthropic-version`. Drop content-length/transfer-encoding so the
+ * caller can set new ones.
+ */
+function rewriteHeadersForAnthropic(reqHeaders, newBodyByteLength) {
+  const out = {};
+  let token = null;
+  for (const [k, v] of Object.entries(reqHeaders)) {
+    const lk = k.toLowerCase();
+    if (
+      lk === 'host' ||
+      lk === 'connection' ||
+      lk === 'expect' ||
+      lk === 'upgrade' ||
+      lk === 'proxy-connection' ||
+      lk === 'keep-alive' ||
+      lk === 'te' ||
+      lk === 'trailer' ||
+      lk === 'content-length' ||
+      lk === 'transfer-encoding'
+    ) {
+      continue;
+    }
+    if (lk === 'authorization') {
+      const m = String(v).match(/^Bearer\s+(.+)$/i);
+      if (m) token = m[1].trim();
+      continue;
+    }
+    if (lk === 'x-api-key' || lk === 'anthropic-version') {
+      continue;
+    }
+    out[k] = v;
+  }
+  if (token) out['x-api-key'] = token;
+  out['anthropic-version'] = ANTHROPIC_VERSION;
+  out['content-type'] = 'application/json';
+  if (newBodyByteLength != null) {
+    out['content-length'] = String(newBodyByteLength);
+  }
+  return out;
+}
+
 function sanitizeResponseHeaders(upstreamHeaders) {
   const out = {};
   for (const [k, v] of Object.entries(upstreamHeaders)) {
@@ -144,11 +207,10 @@ function send(res, status, obj) {
   res.end(body);
 }
 
-function buildUpstreamOptions(upstreamBaseUrl, req, forwardHeaders) {
+function buildUpstreamOptions(upstreamBaseUrl, reqUrl, method, forwardHeaders) {
   const base = new URL(upstreamBaseUrl);
-  // Compose target path: base.pathname (without trailing slash) + req.url
   const basePath = base.pathname.replace(/\/+$/, '');
-  const upstreamUrl = new URL(basePath + req.url, base);
+  const upstreamUrl = new URL(basePath + reqUrl, base);
   return {
     transport: pickTransport(upstreamUrl),
     options: {
@@ -156,13 +218,13 @@ function buildUpstreamOptions(upstreamBaseUrl, req, forwardHeaders) {
       hostname: upstreamUrl.hostname,
       port: upstreamUrl.port || (upstreamUrl.protocol === 'https:' ? 443 : 80),
       path: upstreamUrl.pathname + upstreamUrl.search,
-      method: req.method,
+      method,
       headers: forwardHeaders,
     },
   };
 }
 
-function pipeUpstream({ transport, options, body, req, res, timeoutMs = 600000 }) {
+function pipeUpstream({ transport, options, body, res, timeoutMs = 600000 }) {
   const upstreamReq = transport.request(options, (upstreamRes) => {
     res.statusCode = upstreamRes.statusCode || 502;
     const cleaned = sanitizeResponseHeaders(upstreamRes.headers);
@@ -195,7 +257,6 @@ function pipeUpstream({ transport, options, body, req, res, timeoutMs = 600000 }
     }
   });
 
-  // Abort upstream if client closes its response side prematurely.
   res.on('close', () => {
     if (!res.writableFinished && !upstreamReq.destroyed) {
       try { upstreamReq.destroy(); } catch (_) {}
@@ -206,16 +267,115 @@ function pipeUpstream({ transport, options, body, req, res, timeoutMs = 600000 }
   upstreamReq.end();
 }
 
+/**
+ * Forward an Anthropic `/v1/messages` request, then translate the
+ * response (streaming or buffered) back into OpenAI `/v1/chat/completions`
+ * shape before piping to `res`.
+ */
+function pipeAnthropicTranslated({ transport, options, body, res, model, isStream, timeoutMs = 600000 }) {
+  const upstreamReq = transport.request(options, (upstreamRes) => {
+    const status = upstreamRes.statusCode || 502;
+    res.statusCode = status;
+
+    const upstreamCT = String(upstreamRes.headers['content-type'] || '').toLowerCase();
+    const upstreamIsSse = upstreamCT.includes('text/event-stream');
+
+    if (status >= 400) {
+      // On error, surface upstream body as-is with original headers.
+      const cleaned = sanitizeResponseHeaders(upstreamRes.headers);
+      for (const [k, v] of Object.entries(cleaned)) {
+        try { res.setHeader(k, v); } catch (_) {}
+      }
+      upstreamRes.pipe(res);
+      return;
+    }
+
+    if (isStream && upstreamIsSse) {
+      res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+      res.setHeader('cache-control', 'no-cache');
+      const translator = createSseTranslator({ model });
+      upstreamRes.on('data', (chunk) => {
+        const out = translator.push(chunk);
+        if (out) res.write(out);
+      });
+      upstreamRes.on('end', () => {
+        res.write(translator.flush());
+        res.end();
+      });
+      upstreamRes.on('error', () => {
+        try { res.destroy(); } catch (_) {}
+      });
+      return;
+    }
+
+    // Non-streaming: buffer and translate.
+    const chunks = [];
+    upstreamRes.on('data', (c) => chunks.push(c));
+    upstreamRes.on('end', () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch (_) {
+        send(res, 502, { error: 'invalid upstream response' });
+        return;
+      }
+      const translated = translateAnthropicResponse(parsed, model);
+      const json = JSON.stringify(translated);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('content-length', Buffer.byteLength(json));
+      res.end(json);
+    });
+    upstreamRes.on('error', () => {
+      try { res.destroy(); } catch (_) {}
+    });
+  });
+
+  upstreamReq.setTimeout(timeoutMs, () => {
+    upstreamReq.destroy(Object.assign(new Error('upstream timeout'), { code: 'ETIMEDOUT' }));
+  });
+  upstreamReq.on('error', (err) => {
+    if (res.headersSent) {
+      try { res.destroy(); } catch (_) {}
+      return;
+    }
+    if (err && err.code === 'ETIMEDOUT') {
+      send(res, 504, { error: 'upstream timeout' });
+    } else {
+      send(res, 502, { error: 'upstream connection failed' });
+    }
+  });
+  res.on('close', () => {
+    if (!res.writableFinished && !upstreamReq.destroyed) {
+      try { upstreamReq.destroy(); } catch (_) {}
+    }
+  });
+  if (body != null) upstreamReq.write(body);
+  upstreamReq.end();
+}
+
+/**
+ * Returns true when the request URL is the OpenAI chat completions endpoint
+ * (with or without the `/v1` prefix; we rewrite the no-prefix form).
+ */
 function isChatCompletionsPath(reqUrl) {
-  // Match /v1/chat/completions and any query string.
   const path = reqUrl.split('?')[0];
-  return path === CHAT_PATH;
+  return path === CHAT_PATH || path === CHAT_PATH_NO_V1;
+}
+
+/**
+ * Strip a leading `/chat/completions` (no-v1) and rewrite to the canonical
+ * `/v1/chat/completions`. Keeps query string. Idempotent on `/v1/...`.
+ */
+function canonicalizeChatPath(reqUrl) {
+  const [pathOnly, queryRaw] = reqUrl.split('?');
+  const query = queryRaw != null ? `?${queryRaw}` : '';
+  if (pathOnly === CHAT_PATH_NO_V1) return CHAT_PATH + query;
+  return reqUrl;
 }
 
 function makeHandler({ lockedSystem, upstreamBaseUrl, maxBodyBytes }) {
   return async function handler(req, res) {
     try {
-      // Only POST /v1/chat/completions gets rewritten.
       if (req.method === 'POST' && isChatCompletionsPath(req.url)) {
         let bodyBuf;
         try {
@@ -237,15 +397,54 @@ function makeHandler({ lockedSystem, upstreamBaseUrl, maxBodyBytes }) {
           return;
         }
 
+        // P2b: SKILL.md system override happens FIRST so document detection
+        // sees a clean message list with our locked system block.
         const rewritten = rewriteMessages(parsed, lockedSystem);
+        const canonicalUrl = canonicalizeChatPath(req.url);
+
+        // P5: any user message carrying a {type:'document'} block triggers
+        // the Anthropic translation path.
+        if (hasDocumentBlock(rewritten.messages)) {
+          const { systemBlocks, remaining } = extractSystemBlocks(rewritten.messages);
+          const anthropicBody = buildAnthropicBody(
+            { ...rewritten, messages: remaining },
+            systemBlocks
+          );
+          const newBody = Buffer.from(JSON.stringify(anthropicBody), 'utf8');
+          const forwardHeaders = rewriteHeadersForAnthropic(req.headers, newBody.length);
+          // Anthropic streaming requires the `accept: text/event-stream`
+          // header; OpenAI-compat callers usually omit it.
+          if (anthropicBody.stream) {
+            forwardHeaders['accept'] = 'text/event-stream';
+          }
+          const queryIdx = canonicalUrl.indexOf('?');
+          const query = queryIdx >= 0 ? canonicalUrl.slice(queryIdx) : '';
+          const { transport, options } = buildUpstreamOptions(
+            upstreamBaseUrl,
+            ANTHROPIC_MESSAGES_PATH + query,
+            'POST',
+            forwardHeaders
+          );
+          pipeAnthropicTranslated({
+            transport,
+            options,
+            body: newBody,
+            res,
+            model: anthropicBody.model,
+            isStream: !!anthropicBody.stream,
+          });
+          return;
+        }
+
         const newBody = Buffer.from(JSON.stringify(rewritten), 'utf8');
         const forwardHeaders = sanitizeForwardHeaders(req.headers, newBody.length);
         const { transport, options } = buildUpstreamOptions(
           upstreamBaseUrl,
-          req,
+          canonicalUrl,
+          req.method,
           forwardHeaders
         );
-        pipeUpstream({ transport, options, body: newBody, req, res });
+        pipeUpstream({ transport, options, body: newBody, res });
         return;
       }
 
@@ -253,7 +452,8 @@ function makeHandler({ lockedSystem, upstreamBaseUrl, maxBodyBytes }) {
       const forwardHeaders = sanitizeForwardHeaders(req.headers, null);
       const { transport, options } = buildUpstreamOptions(
         upstreamBaseUrl,
-        req,
+        req.url,
+        req.method,
         forwardHeaders
       );
       const upstreamReq = transport.request(options, (upstreamRes) => {
@@ -297,7 +497,7 @@ function makeHandler({ lockedSystem, upstreamBaseUrl, maxBodyBytes }) {
   };
 }
 
-function createServer({ skillPath, upstreamBaseUrl, maxBodyBytes = 10 * 1024 * 1024 }) {
+function createServer({ skillPath, upstreamBaseUrl, maxBodyBytes = 50 * 1024 * 1024 }) {
   if (!upstreamBaseUrl) {
     throw new Error('UPSTREAM_BASE_URL is required');
   }
@@ -335,4 +535,5 @@ module.exports = {
   rewriteMessages,
   loadSkillOrDie,
   isChatCompletionsPath,
+  canonicalizeChatPath,
 };
