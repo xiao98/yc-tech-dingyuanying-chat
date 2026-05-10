@@ -106,11 +106,22 @@ print('convo: $2');
 print('owner: ' + c.user);
 print('title: ' + c.title);
 print('---');
-const msgs = db.messages.find({conversationId: '$2'}, {sender:1, text:1, isCreatedByUser:1, createdAt:1, _id:0}).sort({createdAt:1}).toArray();
+const msgs = db.messages.find({conversationId: '$2'}, {sender:1, text:1, content:1, isCreatedByUser:1, createdAt:1, _id:0}).sort({createdAt:1}).toArray();
 msgs.forEach(function(m) {
   const role = m.isCreatedByUser ? 'USER' : (m.sender || 'BOT');
-  const txt = (m.text || '').replace(/\n/g, ' ').slice(0, 200);
-  print('[' + role + '] ' + (m.createdAt ? m.createdAt.toISOString() : '?') + '  ' + txt);
+  let body = m.text || '';
+  if (Array.isArray(m.content) && m.content.length) {
+    body = m.content.map(function(p) {
+      if (typeof p === 'string') return p;
+      if (p && p.type === 'text') return p.text || '';
+      if (p && p.text && typeof p.text === 'object') return p.text.value || '';
+      if (p && p.type === 'tool_call') return '[tool_call:' + (p.tool_call && p.tool_call.name ? p.tool_call.name : '?') + ']';
+      return '';
+    }).join('');
+  }
+  print('[' + role + ' ' + (m.createdAt ? m.createdAt.toISOString() : '?') + ']');
+  print(body);
+  print('---');
 });
 JSEOF
     ;;
