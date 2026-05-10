@@ -981,4 +981,91 @@ describe('encodeAndFormatDocuments - fileConfig integration', () => {
       expect(result.files).toHaveLength(0);
     });
   });
+
+  describe('YC TECH P5 — custom endpoint emits Anthropic document blocks', () => {
+    it('should emit Anthropic document block for `custom` endpoint PDF (so sidecar can translate)', async () => {
+      const req = createMockRequest(15) as ServerRequest;
+      const file = createMockFile(2);
+      const mockContent = Buffer.from('pdf-bytes').toString('base64');
+      mockedGetFileStream.mockResolvedValue({
+        file,
+        content: mockContent,
+        metadata: file,
+      });
+      mockedValidatePdf.mockResolvedValue({ isValid: true });
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: 'custom' as Providers },
+        mockStrategyFunctions,
+      );
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]).toMatchObject({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: mockContent,
+        },
+        citations: { enabled: true },
+      });
+    });
+
+    it('should emit Anthropic document block for `custom` endpoint text/plain', async () => {
+      const req = createMockRequest(15) as ServerRequest;
+      const file = createMockDocFile(1, 'text/plain', 'notes.txt');
+      const mockContent = Buffer.from('notes').toString('base64');
+      mockedGetFileStream.mockResolvedValue({
+        file,
+        content: mockContent,
+        metadata: file,
+      });
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: 'custom' as Providers },
+        mockStrategyFunctions,
+      );
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]).toMatchObject({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'text/plain',
+          data: mockContent,
+        },
+      });
+    });
+
+    it('should still emit OpenAI file block for OPENAI provider (no regression)', async () => {
+      const req = createMockRequest(15) as ServerRequest;
+      const file = createMockDocFile(1, 'text/plain', 'readme.txt');
+      const mockContent = Buffer.from('readme').toString('base64');
+      mockedGetFileStream.mockResolvedValue({
+        file,
+        content: mockContent,
+        metadata: file,
+      });
+
+      const result = await encodeAndFormatDocuments(
+        req,
+        [file],
+        { provider: Providers.OPENAI },
+        mockStrategyFunctions,
+      );
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]).toMatchObject({
+        type: 'file',
+        file: {
+          filename: 'readme.txt',
+          file_data: `data:text/plain;base64,${mockContent}`,
+        },
+      });
+    });
+  });
 });

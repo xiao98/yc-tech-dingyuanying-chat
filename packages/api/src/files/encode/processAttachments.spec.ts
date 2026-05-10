@@ -156,3 +156,54 @@ describe('processAttachments — supportedMimeTypes routing logic', () => {
     expect(result).toBe('skipped');
   });
 });
+
+describe('YC TECH P5 — ycapi custom endpoint fileConfig admits PDF/Word/text', () => {
+  /**
+   * Mirrors the fileConfig block in librechat.yaml. If this test breaks,
+   * the YAML and the test must be updated together — a regression here
+   * means PDF uploads silently get rejected at the validator layer
+   * before they ever reach the sidecar translator.
+   */
+  const yapconfig = mergeFileConfig({
+    endpoints: {
+      ycapi: {
+        fileLimit: 8,
+        fileSizeLimit: 32,
+        totalSizeLimit: 64,
+        supportedMimeTypes: [
+          'image/jpeg',
+          'image/png',
+          'image/gif',
+          'image/webp',
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+          'text/markdown',
+        ],
+      },
+    },
+  });
+  const epConfig = getEndpointFileConfig({ fileConfig: yapconfig, endpoint: 'ycapi' });
+
+  it.each([
+    ['application/pdf', 'documents'],
+    ['application/msword', 'documents'],
+    [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'documents',
+    ],
+    ['text/plain', 'documents'],
+    ['text/markdown', 'documents'],
+    ['image/png', 'images'],
+    ['image/jpeg', 'images'],
+  ])('routes %s → %s', (mime, want) => {
+    expect(categorizeFile({ type: mime }, false, yapconfig, epConfig)).toBe(want);
+  });
+
+  it('rejects unauthorized MIME types (e.g. application/zip)', () => {
+    expect(categorizeFile({ type: 'application/zip' }, false, yapconfig, epConfig)).toBe(
+      'skipped',
+    );
+  });
+});
