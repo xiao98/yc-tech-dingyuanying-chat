@@ -27,12 +27,26 @@ open('/tmp/r.cjs','w').write(src)
 PY
 docker cp /tmp/r.cjs ycchat-api:/app/node_modules/@librechat/agents/dist/cjs/messages/reducer.cjs
 
-echo '==2. dingYuanyingLock messages bypass=='
+echo '==2. dingYuanyingLock messages bypass + spec gate=='
 docker exec ycchat-api sh -c '
 if ! grep -q "false && Array.isArray(req.body.messages)" /app/api/server/middleware/dingYuanyingLock.js; then
   sed -i "s|^    if (Array.isArray(req.body.messages)) {|    if (false \&\& Array.isArray(req.body.messages)) {|" /app/api/server/middleware/dingYuanyingLock.js
 fi
 '
+# Gate promptPrefix injection on spec === "ding-yuanying" so non-丁元英 specs (Opus etc) dont inherit SKILL.md
+docker cp ycchat-api:/app/api/server/middleware/dingYuanyingLock.js /tmp/dyl.js
+python3 - <<'PY'
+src = open('/tmp/dyl.js').read()
+old = '    req.body.promptPrefix = SKILL_TEXT;'
+new = '    if ((req.body.spec || "") === "ding-yuanying") { req.body.promptPrefix = SKILL_TEXT; }'
+if old in src:
+    src = src.replace(old, new, 1)
+    open('/tmp/dyl.js','w').write(src)
+    print('  spec gate applied')
+else:
+    print('  spec gate already applied or pattern missing')
+PY
+docker cp /tmp/dyl.js ycchat-api:/app/api/server/middleware/dingYuanyingLock.js
 
 echo '==3. attachSubkey disable=='
 docker exec ycchat-api sh -c '
