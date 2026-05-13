@@ -35,6 +35,9 @@ const CHAT_PATH = '/v1/chat/completions';
 const CHAT_PATH_NO_V1 = '/chat/completions';
 const ANTHROPIC_MESSAGES_PATH = '/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
+const LOCKED_MODELS = new Set([
+  (process.env.LOCKED_PERSONA_MODEL || 'claude-sonnet-4-6').trim(),
+]);
 
 function loadSkillOrDie(skillPath) {
   let raw;
@@ -397,9 +400,12 @@ function makeHandler({ lockedSystem, upstreamBaseUrl, maxBodyBytes }) {
           return;
         }
 
-        // P2b: SKILL.md system override happens FIRST so document detection
-        // sees a clean message list with our locked system block.
-        const rewritten = rewriteMessages(parsed, lockedSystem);
+        // P2b: SKILL.md system override only for the locked persona model.
+        // Other specs (e.g. claude-opus-4-6 "通用") intentionally pass through
+        // with their own messages — the product exposes a non-persona helper
+        // alongside the 丁元英 spec, so the sidecar must respect that.
+        const shouldLock = parsed && typeof parsed.model === 'string' && LOCKED_MODELS.has(parsed.model);
+        const rewritten = shouldLock ? rewriteMessages(parsed, lockedSystem) : parsed;
         const canonicalUrl = canonicalizeChatPath(req.url);
 
         // P5: any user message carrying a {type:'document'} block triggers

@@ -4,14 +4,15 @@
 #
 # Patches (numbered same as previous chat history):
 #   1. reducer.cjs filter(Boolean) ×2  (defensive against null AIMessage)
-#   2. dingYuanyingLock.js messages bypass  (LibreChat doc-shape ≠ OpenAI)
+#   2. dingYuanyingLock.js messages bypass + spec gate
 #   3. chat.js attachSubkey disable  (sub-key broken: New-API masks key)
 #   4. dist/index.js loginAsUser two-step  (cookie + /api/user/token)
 #   5. dist/index.js username + display_name → yc-<email-prefix>
 #   6. OCR text menu item delete from client bundle
+#   7. sidecar LOCKED_MODELS gate (skip SKILL.md inject for non-persona models)
 #
-# Sidecar patches (cache_control + protocol translation) are in source +
-# baked into image — no hot patch needed.
+# Sidecar source already has the LOCKED_MODELS gate; step 7 is a hot-patch
+# fallback for cases where the running image was built before the gate landed.
 
 set -euo pipefail
 
@@ -129,6 +130,26 @@ else
   echo "  WARNING: provisioning block missing or mangled — check manually"
 fi
 '
+
+echo '==7. sidecar LOCKED_MODELS gate=='
+if docker exec ycchat-sidecar grep -q 'LOCKED_MODELS' /app/src/index.js 2>/dev/null; then
+  echo '  already in image source — skipping hot patch'
+else
+  docker cp ycchat-sidecar:/app/src/index.js /tmp/sc.js
+  python3 - <<'PY'
+src = open('/tmp/sc.js').read()
+old = '        // P2b: SKILL.md system override happens FIRST so document detection\n        // sees a clean message list with our locked system block.\n        const rewritten = rewriteMessages(parsed, lockedSystem);'
+new = '        // P2b hot-patch: lock SKILL.md only for the persona model.\n        const LOCKED_MODELS = new Set([(process.env.LOCKED_PERSONA_MODEL || "claude-sonnet-4-6").trim()]);\n        const shouldLock = parsed && typeof parsed.model === "string" && LOCKED_MODELS.has(parsed.model);\n        const rewritten = shouldLock ? rewriteMessages(parsed, lockedSystem) : parsed;'
+if old in src:
+    src = src.replace(old, new, 1)
+    open('/tmp/sc.js','w').write(src)
+    print('  hot patch applied')
+else:
+    print('  pattern not found — sidecar source may have drifted')
+PY
+  docker cp /tmp/sc.js ycchat-sidecar:/app/src/index.js
+  docker compose restart system-lock-proxy 2>&1 | tail -2
+fi
 
 echo '==restart api=='
 cd /opt/dingyuanying-chat

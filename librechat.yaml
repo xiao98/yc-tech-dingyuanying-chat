@@ -3,35 +3,27 @@
 version: 1.2.8
 cache: true
 
-# P5: explicitly allow PDF / Word / plain-text / markdown uploads in
-# addition to the default image set. The system-lock-proxy sidecar
-# detects document blocks in outbound chat-completion bodies and
-# translates the request to Anthropic `/v1/messages` so the upstream
-# Claude model actually reads the file (the OpenAI-compat
-# `/v1/chat/completions` endpoint silently drops document blocks).
-fileConfig:
-  endpoints:
-    ycapi:
-      fileLimit: 8
-      fileSizeLimit: 32
-      totalSizeLimit: 64
-      supportedMimeTypes:
-        - "image/jpeg"
-        - "image/png"
-        - "image/gif"
-        - "image/webp"
-        - "application/pdf"
-        - "application/msword"
-        - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        - "text/plain"
-        - "text/markdown"
-
 interface:
   parameters: false
   presets: false
   modelSelect: false
   endpointsMenu: false
   sidePanel: true
+  prompts: false
+  agents: false
+  multiConvo: false
+  webSearch: false
+  runCode: false
+  temporaryChat: false
+  bookmarks: true
+  memories: true
+  fileSearch: true
+  fileCitations: false
+  skills: false
+  peoplePicker:
+    users: false
+    groups: false
+    roles: false
   privacyPolicy:
     externalUrl: 'https://yctech.example/privacy'
     openNewTab: true
@@ -43,6 +35,14 @@ balance:
   enabled: true
   startBalance: 0
   autoRefillEnabled: false
+  topup:
+    defaultRatio: 2000
+    channels:
+      stripe:
+        usd: 2000
+        cny: 280
+      alipay:
+        cny: 280
 
 permissions:
   USER:
@@ -85,7 +85,7 @@ modelSpecs:
       default: true
       preset:
         endpoint: ycapi
-        model: gpt-5
+        model: claude-sonnet-4-6
         temperature: 0.7
         promptPrefix: |-
           ---
@@ -311,6 +311,47 @@ modelSpecs:
           ## 元提醒
 
           你不是丁元英。你是一个装载了他思维框架的助手。**当用户的问题已经超出框架能回答的范围时，诚实地退出角色告诉用户**——这本身就很符合丁元英的风格："这事我不懂"或"这事丁元英也答不了"。
+    - name: claude-opus
+      label: Claude Opus 4.6（通用）
+      description: 通用 AI 助手，不带丁元英人设，适合写代码、查资料、日常问答
+      preset:
+        endpoint: ycapi
+        model: claude-opus-4-6
+        temperature: 0.7
+        modelDisplayLabel: Opus 4.6
+
+
+fileConfig:
+  endpoints:
+    ycapi:
+      fileLimit: 5
+      fileSizeLimit: 20
+      totalSizeLimit: 100
+      supportedMimeTypes:
+        - "image/jpeg"
+        - "image/png"
+        - "image/webp"
+        - "image/gif"
+        - "application/pdf"
+        - "application/msword"
+        - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        - "text/plain"
+        - "text/markdown"
+    default:
+      fileLimit: 5
+      fileSizeLimit: 20
+      supportedMimeTypes:
+        - "image/jpeg"
+        - "image/png"
+        - "image/webp"
+        - "image/gif"
+        - "application/pdf"
+        - "application/msword"
+        - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        - "text/plain"
+        - "text/markdown"
+  serverFileSizeLimit: 50
+  avatarSizeLimit: 5
 
 endpoints:
   custom:
@@ -325,8 +366,10 @@ endpoints:
       # sidecar URL in prod, or YCAPI directly in unit-test runs.
       baseURL: '${YCAPI_BASE_URL}'
       models:
-        default: ['gpt-5']
+        default: ['claude-sonnet-4-6', 'claude-opus-4-6']
         fetch: false
       titleConvo: true
-      titleModel: gpt-5
-      modelDisplayLabel: 丁元英
+      titleModel: claude-sonnet-4-6
+      modelDisplayLabel: Claude
+      addParams:
+        stream: false
